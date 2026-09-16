@@ -13,6 +13,7 @@ func (app *application) newTicketCommand() *cobra.Command {
 	ticket.AddCommand(
 		app.newTicketListCommand(),
 		app.newTicketGetCommand(),
+		app.newTicketRequesterTicketsCommand(),
 		app.newTicketNextCommand(),
 		app.newTicketReplyCommand(),
 		app.newTicketNoteCommand(),
@@ -22,6 +23,42 @@ func (app *application) newTicketCommand() *cobra.Command {
 		app.newTicketNotificationCommand(),
 	)
 	return ticket
+}
+
+func (app *application) newTicketRequesterTicketsCommand() *cobra.Command {
+	var status, cursor string
+	var limit int
+	command := &cobra.Command{
+		Use:     "requester-tickets NUMBER",
+		Aliases: []string{"related"},
+		Short:   "List other tickets from this requester in the same project",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			query := url.Values{}
+			setQuery(query, "status", status)
+			setQuery(query, "cursor", cursor)
+			if limit != 50 {
+				query.Set("limit", strconv.Itoa(limit))
+			}
+			client, err := app.apiClient()
+			if err != nil {
+				return err
+			}
+			path := "/api/backoffice/tickets/" + url.PathEscape(args[0]) + "/requester-tickets"
+			if encoded := query.Encode(); encoded != "" {
+				path += "?" + encoded
+			}
+			body, _, err := client.request(http.MethodGet, path, nil, 0, "")
+			if err != nil {
+				return err
+			}
+			return app.write(command, body)
+		},
+	}
+	command.Flags().StringVar(&status, "status", "", "filter by ticket status")
+	command.Flags().IntVar(&limit, "limit", 50, "page size from 1 to 100")
+	command.Flags().StringVar(&cursor, "cursor", "", "opaque cursor from the previous page")
+	return command
 }
 
 func (app *application) newTicketNotificationCommand() *cobra.Command {

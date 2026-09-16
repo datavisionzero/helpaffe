@@ -40,9 +40,38 @@ public sealed class CliWorkflowTests : IAsyncLifetime
         try
         {
             await WaitUntilReady(baseUrl, api, cancellationToken);
-            var (projectId, token) = await ProvisionAgent(baseUrl, cancellationToken);
-            await SeedTicket(projectId, cancellationToken);
+            var (projectId, hiddenProjectId, token) = await ProvisionAgent(baseUrl, cancellationToken);
+            await SeedTickets(projectId, hiddenProjectId, cancellationToken);
             await BuildCli(root, cliPath, cancellationToken);
+
+            var searched = await RunCli(cliPath, baseUrl, token,
+                ["--json", "ticket", "list", "--project", projectId.ToString(), "--status", "open", "--search", "workflow"],
+                null, cancellationToken);
+            Assert.Equal(0, searched.ExitCode);
+            using var searchedJson = JsonDocument.Parse(searched.StandardOutput);
+            var searchedItems = searchedJson.RootElement.GetProperty("items");
+            Assert.Equal(2, searchedItems.GetArrayLength());
+            Assert.DoesNotContain(searchedItems.EnumerateArray(),
+                value => value.GetProperty("number").GetString() == "HLP-HIDDEN-1");
+
+            var context = await RunCli(cliPath, baseUrl, token,
+                ["--json", "ticket", "get", "HLP-CLI-1"], null, cancellationToken);
+            Assert.Equal(0, context.ExitCode);
+            using var contextJson = JsonDocument.Parse(context.StandardOutput);
+            Assert.Equal("2.4.1", contextJson.RootElement.GetProperty("context").GetProperty("release").GetString());
+
+            var related = await RunCli(cliPath, baseUrl, token,
+                ["--json", "ticket", "requester-tickets", "HLP-CLI-1"], null, cancellationToken);
+            Assert.Equal(0, related.ExitCode);
+            using var relatedJson = JsonDocument.Parse(related.StandardOutput);
+            var relatedItems = relatedJson.RootElement.GetProperty("items");
+            Assert.Single(relatedItems.EnumerateArray());
+            Assert.Equal("HLP-CLI-2", relatedItems[0].GetProperty("number").GetString());
+
+            var hidden = await RunCli(cliPath, baseUrl, token,
+                ["--json", "ticket", "get", "HLP-HIDDEN-1"], null, cancellationToken);
+            Assert.Equal(3, hidden.ExitCode);
+            Assert.Empty(hidden.StandardOutput);
 
             var acquired = await RunCli(cliPath, baseUrl, token,
                 ["--json", "ticket", "next", "--project", projectId.ToString()], null, cancellationToken);
@@ -140,7 +169,7 @@ public sealed class CliWorkflowTests : IAsyncLifetime
         throw new TimeoutException("The API did not become ready.");
     }
 
-    private static async Task<(Guid ProjectId, string Token)> ProvisionAgent(
+    private static async Task<(Guid ProjectId, Guid HiddenProjectId, string Token)> ProvisionAgent(
         string baseUrl,
         CancellationToken cancellationToken)
     {
@@ -163,18 +192,42 @@ public sealed class CliWorkflowTests : IAsyncLifetime
         var project = await projectResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
         var projectId = project.GetProperty("id").GetGuid();
 
+        using var hiddenProjectResponse = await client.PostAsJsonAsync("/api/backoffice/projects", new
+        {
+            key = "HIDDEN",
+            name = "Hidden integration",
+        }, cancellationToken);
+        Assert.Equal(HttpStatusCode.Created, hiddenProjectResponse.StatusCode);
+        var hiddenProject = await hiddenProjectResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+        var hiddenProjectId = hiddenProject.GetProperty("id").GetGuid();
+
+        using var supportResponse = await client.PostAsJsonAsync("/api/backoffice/users", new
+        {
+            name = "Restricted CLI support",
+            email = "restricted-cli@example.test",
+            password = "restricted-cli-password",
+            role = "support",
+        }, cancellationToken);
+        Assert.Equal(HttpStatusCode.Created, supportResponse.StatusCode);
+        var support = await supportResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
+        var supportId = support.GetProperty("id").GetGuid();
+        using var grantResponse = await client.PutAsync(
+            $"/api/backoffice/users/{supportId}/projects/{projectId}", null, cancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, grantResponse.StatusCode);
+
         using var agentResponse = await client.PostAsJsonAsync("/api/backoffice/agents", new
         {
             name = "CLI integration agent",
+            user_id = supportId,
             all_projects = true,
             project_ids = Array.Empty<Guid>(),
         }, cancellationToken);
         Assert.Equal(HttpStatusCode.Created, agentResponse.StatusCode);
         var agent = await agentResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
-        return (projectId, agent.GetProperty("token").GetString()!);
+        return (projectId, hiddenProjectId, agent.GetProperty("token").GetString()!);
     }
 
-    private async Task SeedTicket(Guid projectId, CancellationToken cancellationToken)
+    private async Task SeedTickets(Guid projectId, Guid hiddenProjectId, CancellationToken cancellationToken)
     {
         await using var database = CreateDatabase();
         database.Tickets.Add(Ticket.Create(
@@ -186,7 +239,28 @@ public sealed class CliWorkflowTests : IAsyncLifetime
             "CLI Requester",
             "cli-requester@example.test",
             "Please prove the whole workflow.",
-            DateTimeOffset.UtcNow));
+            DateTimeOffset.UtcNow.AddMinutes(-3),
+            contextJson: "{\"release\":\"2.4.1\",\"page\":\"/settings\"}"));
+        database.Tickets.Add(Ticket.Create(
+            Guid.NewGuid(),
+            "HLP-CLI-2",
+            projectId,
+            "Previous CLI workflow",
+            "cli-requester",
+            "CLI Requester",
+            "cli-requester@example.test",
+            "This is another ticket in the same project.",
+            DateTimeOffset.UtcNow.AddMinutes(-2)));
+        database.Tickets.Add(Ticket.Create(
+            Guid.NewGuid(),
+            "HLP-HIDDEN-1",
+            hiddenProjectId,
+            "Hidden CLI workflow",
+            "cli-requester",
+            "CLI Requester",
+            "cli-requester@example.test",
+            "This ticket must remain outside the support user's scope.",
+            DateTimeOffset.UtcNow.AddMinutes(-1)));
         await database.SaveChangesAsync(cancellationToken);
     }
 

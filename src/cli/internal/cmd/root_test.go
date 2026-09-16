@@ -94,6 +94,34 @@ func TestTicketNotificationRetryUsesIdempotencyWithoutTicketVersion(t *testing.T
 	}
 }
 
+func TestTicketRequesterTicketsForwardsSameProjectHistoryFilters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/requester-tickets"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if got, want := request.URL.Query().Get("status"), "resolved"; got != want {
+			t.Errorf("status = %q, want %q", got, want)
+		}
+		if got, want := request.URL.Query().Get("limit"), "10"; got != want {
+			t.Errorf("limit = %q, want %q", got, want)
+		}
+		if got, want := request.URL.Query().Get("cursor"), "opaque+/cursor"; got != want {
+			t.Errorf("cursor = %q, want %q", got, want)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "items": [], "next_cursor": null }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "ticket", "requester-tickets", "HLP-42",
+		"--status", "resolved", "--limit", "10", "--cursor", "opaque+/cursor"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestVersionConflictHasStableExitCodeAndMachineError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/problem+json")

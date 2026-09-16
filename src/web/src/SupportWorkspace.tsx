@@ -42,6 +42,7 @@ type NotificationDelivery = {
 type TicketDetail = {
   summary: TicketSummary;
   requester: { external_user_id: string; name: string; email: string };
+  context: Record<string, unknown> | null;
   support_instructions: string;
   notifications: NotificationDelivery[];
   conversation: ConversationEntry[];
@@ -70,6 +71,8 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [ticketAssignees, setTicketAssignees] = useState<Assignee[]>([]);
   const [detail, setDetail] = useState<TicketDetail | null>(null);
+  const [requesterTickets, setRequesterTickets] = useState<TicketSummary[]>([]);
+  const [requesterTicketsCursor, setRequesterTicketsCursor] = useState<string | null>(null);
   const [fieldDraft, setFieldDraft] = useState<FieldDraft | null>(null);
   const [reply, setReply] = useState("");
   const [replyStatus, setReplyStatus] = useState<TicketStatus>("waiting_for_customer");
@@ -124,6 +127,8 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       setError("");
       const selected = await call<TicketDetail>(`/tickets/${encodeURIComponent(number)}`);
       setDetail(selected);
+      setRequesterTickets([]);
+      setRequesterTicketsCursor(null);
       if (!preserveDrafts) {
         setFieldDraft(fieldsFrom(selected.summary));
         setReply("");
@@ -131,6 +136,18 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       }
       setConflict(null);
       void loadAssignees(selected.summary.project.id, setTicketAssignees);
+      void loadRequesterTickets(selected.summary.number);
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }
+
+  async function loadRequesterTickets(number: string, cursor?: string) {
+    try {
+      const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+      const page = await call<TicketPage>(`/tickets/${encodeURIComponent(number)}/requester-tickets${query}`);
+      setRequesterTickets(current => cursor ? [...current, ...page.items] : page.items);
+      setRequesterTicketsCursor(page.next_cursor);
     } catch (reason) {
       setError(message(reason));
     }
@@ -146,10 +163,13 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
         body: JSON.stringify({ project_id: projectId || null }),
       });
       setDetail(acquired);
+      setRequesterTickets([]);
+      setRequesterTicketsCursor(null);
       setFieldDraft(fieldsFrom(acquired.summary));
       setConflict(null);
       setNotice(`${acquired.summary.number} is now assigned to you.`);
       void loadAssignees(acquired.summary.project.id, setTicketAssignees);
+      void loadRequesterTickets(acquired.summary.number);
       await loadTickets();
     } catch (reason) {
       if (reason instanceof RequestError && reason.type.endsWith("/no-ticket")) {
@@ -237,6 +257,8 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   function selectQueue(value: Queue) {
     setQueue(value);
     setDetail(null);
+    setRequesterTickets([]);
+    setRequesterTicketsCursor(null);
     setConflict(null);
     setNotice("");
   }
@@ -329,6 +351,20 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
               <button type="submit" disabled={!fieldsChanged}>Save ticket fields</button>
             </form>
             <div className="requester-card"><p className="eyebrow">Requester</p><strong>{detail.requester.name}</strong><a href={`mailto:${detail.requester.email}`}>{detail.requester.email}</a><span>{detail.requester.external_user_id}</span></div>
+            <section className="related-tickets" aria-label="Other tickets from this requester">
+              <p className="eyebrow">Other requester tickets</p>
+              {requesterTickets.length === 0 ? <span className="muted">No other tickets in this project.</span> : <ol>
+                {requesterTickets.map(ticket => <li key={ticket.id}><button className="secondary" onClick={() => void openTicket(ticket.number)}>
+                  <span><strong>{ticket.number}</strong><span>{ticket.status.replaceAll("_", " ")}</span></span>
+                  <span>{ticket.subject}</span>
+                </button></li>)}
+              </ol>}
+              {requesterTicketsCursor && <button className="secondary compact" onClick={() => void loadRequesterTickets(detail.summary.number, requesterTicketsCursor)}>Load more</button>}
+            </section>
+            <details className="ticket-context" open={detail.context !== null}>
+              <summary>Technical context</summary>
+              {detail.context === null ? <span className="muted">No technical context was supplied.</span> : <pre>{JSON.stringify(detail.context, null, 2)}</pre>}
+            </details>
             {detail.notifications.length > 0 && <section className="notification-card" aria-label="Email deliveries">
               <p className="eyebrow">Email deliveries</p>
               <ol>

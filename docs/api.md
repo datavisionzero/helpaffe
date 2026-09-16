@@ -210,7 +210,7 @@ operations are:
 | --- | --- |
 | `GET /api/backoffice/assignees` | List active support users eligible in the visible project scope, optionally for one project |
 | `GET /api/backoffice/tickets` | Filter visible tickets by status, priority, project, assignee, `mine`, or PostgreSQL full-text search with a bound cursor |
-| `GET /api/backoffice/tickets/{number}` | Read the requester, complete conversation, actor attribution, and project support instructions together |
+| `GET /api/backoffice/tickets/{number}` | Read the requester, technical creation context, complete conversation, delivery history, actor attribution, and project support instructions together |
 | `GET /api/backoffice/tickets/{number}/requester-tickets` | List other tickets for the same stable requester ID within that ticket's project |
 | `POST /api/backoffice/tickets/next` | Atomically assign and start the urgent-first, longest-waiting eligible Open ticket |
 | `PATCH /api/backoffice/tickets/{number}` | Change status, priority, or eligible human assignee |

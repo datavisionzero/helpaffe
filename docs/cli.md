@@ -41,7 +41,8 @@ only the selected source names and never prints a credential. Product keys
 | `project email template list`, `get`, `set`, `preview` | Manage and render the five fixed English notification templates |
 | `project email test` | Submit one rendered test message through project SMTP |
 | `ticket list` | Filter and search visible tickets |
-| `ticket get` / `ticket context` | Read the full ticket conversation and instructions |
+| `ticket get` / `ticket context` | Read the full ticket conversation, technical creation context, and instructions |
+| `ticket requester-tickets` / `ticket related` | List other tickets for the same requester within the source ticket's project |
 | `ticket next` | Atomically acquire the next eligible ticket |
 | `ticket reply`, `ticket note` | Add a public reply or internal note |
 | `ticket update` | Change status, priority, or assignee |

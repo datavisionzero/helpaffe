@@ -158,10 +158,17 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
 .composer-actions label { min-width: 13rem; }
 .note-button { color: #1d1d12; background: #d6bd72; }
 .ticket-sidebar { display: grid; align-content: start; gap: 1rem; }
-.ticket-fields, .requester-card, .notification-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.1rem; background: #14211d; }
+.ticket-fields, .requester-card, .related-tickets, .ticket-context, .notification-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.1rem; background: #14211d; }
 .ticket-fields p, .requester-card p { margin: 0; }
 .requester-card { gap: 0.35rem; }
 .requester-card span { overflow-wrap: anywhere; color: #82968d; font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; }
+.related-tickets > p { margin: 0; }
+.related-tickets ol { display: grid; gap: 0.55rem; margin: 0; padding: 0; list-style: none; }
+.related-tickets li button { display: grid; gap: 0.35rem; width: 100%; text-align: left; }
+.related-tickets li button > span:first-child { display: flex; justify-content: space-between; gap: 0.5rem; color: #a9cbbb; font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; text-transform: uppercase; }
+.related-tickets li button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-context summary { cursor: pointer; font-weight: 600; }
+.ticket-context pre { overflow-x: auto; margin: 0; white-space: pre-wrap; color: #a9cbbb; font-family: "IBM Plex Mono", monospace; font-size: 0.72rem; line-height: 1.5; }
 .notification-card > p { margin: 0; }
 .notification-card ol { display: grid; gap: 0.7rem; margin: 0; padding: 0; list-style: none; }
 .notification-card li { display: grid; gap: 0.4rem; border-top: 1px solid #2b3c35; padding-top: 0.7rem; }
@@ -177,7 +184,7 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
   .support-workspace { grid-template-columns: minmax(19rem, 24rem) minmax(0, 1fr); }
   .ticket-layout { grid-template-columns: 1fr; }
   .ticket-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .instructions { grid-column: 1 / -1; }
+  .instructions, .ticket-context { grid-column: 1 / -1; }
 }
 @media (max-width: 40rem) {
   .workspace { width: min(100% - 2rem, 76rem); padding-top: 3.5rem; }
@@ -196,6 +203,6 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
   .ticket-header, .customer-activity, .conflict, .composer-actions { align-items: stretch; flex-direction: column; }
   .ticket-header .compact { align-self: start; }
   .ticket-sidebar { grid-template-columns: 1fr; }
-  .instructions { grid-column: auto; }
+  .instructions, .ticket-context { grid-column: auto; }
   .conversation-entry.public_reply, .conversation-entry.internal_note { margin-inline: 0; }
 }

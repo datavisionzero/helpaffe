@@ -24,6 +24,7 @@ const summary = {
 const detail = {
   summary,
   requester: { external_user_id: "customer-42", name: "Avery Customer", email: "avery@example.test" },
+  context: { release: "2.4.1", page: "/settings" },
   support_instructions: "Ask for the release number before replying.",
   notifications: [],
   conversation: [
@@ -92,7 +93,24 @@ it("shows the shared queues, filters, full context, and distinct conversation ki
   expect(screen.getAllByText("Internal note")).toHaveLength(2);
   expect(screen.getByText("System event")).toBeInTheDocument();
   expect(screen.getByText("Ask for the release number before replying.")).toBeInTheDocument();
+  expect(screen.getByText(/"release": "2.4.1"/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /HLP-41.*Earlier settings issue/s }));
+  expect(await screen.findByRole("heading", { name: "Earlier settings issue" })).toBeInTheDocument();
   expect(screen.getAllByText("New customer activity")).toHaveLength(2);
+});
+
+it("combines full-text search with project and status filters", async () => {
+  const fetch = stubSupportApi();
+  render(<SupportWorkspace user={user} projects={[project]} />);
+  await screen.findByRole("tab", { name: "Open" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: project.id } });
+  fireEvent.click(screen.getByRole("tab", { name: "Resolved" }));
+  fireEvent.change(screen.getByPlaceholderText("Number, subject, requester…"), { target: { value: "blank page" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+  await waitFor(() => expect(fetch.mock.calls.some(([path]) =>
+    String(path).includes("/tickets?status=resolved&project_id=project-1&search=blank+page"),
+  )).toBe(true));
 });
 
 it("sends a public reply with the last-read version and an idempotency key", async () => {
@@ -224,6 +242,9 @@ function stubSupportApi(
     if (overridden) return overridden;
     if (path.includes("/assignees")) return response([{ id: "support-1", name: "Support" }]);
     if (path.includes("/tickets?") && !init?.method) return response({ items: [summary], next_cursor: null });
+    if (path.endsWith("/tickets/HLP-42/requester-tickets") && !init?.method) return response({ items: [{ ...summary, id: "ticket-previous", number: "HLP-41", subject: "Earlier settings issue", status: "resolved" }], next_cursor: null });
+    if (path.endsWith("/tickets/HLP-41/requester-tickets") && !init?.method) return response({ items: [summary], next_cursor: null });
+    if (path.endsWith("/tickets/HLP-41") && !init?.method) return response({ ...detail, summary: { ...summary, id: "ticket-previous", number: "HLP-41", subject: "Earlier settings issue", status: "resolved" } });
     if (path.endsWith("/tickets/HLP-42") && !init?.method) return response(detail);
     throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
   });
