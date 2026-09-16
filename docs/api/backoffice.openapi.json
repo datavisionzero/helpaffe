@@ -1,0 +1,283 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "helpaffe Backoffice API",
+    "version": "0.1.0",
+    "description": "The shared human and named-agent contract for support work. Browser-only access and credential administration operations are documented separately in docs/api.md."
+  },
+  "servers": [{ "url": "/api/backoffice" }],
+  "security": [{ "browserSession": [] }, { "agentToken": [] }],
+  "paths": {
+    "/tickets": {
+      "get": {
+        "operationId": "listTickets",
+        "summary": "List tickets in the caller's current project scope",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/TicketStatus" } },
+          { "name": "priority", "in": "query", "schema": { "$ref": "#/components/schemas/TicketPriority" } },
+          { "name": "project_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "assignee_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "mine", "in": "query", "schema": { "type": "boolean", "default": false } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Visible tickets", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketPage" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
+      }
+    },
+    "/tickets/{number}": {
+      "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
+      "get": {
+        "operationId": "getTicket",
+        "summary": "Read one ticket with its complete support context",
+        "responses": {
+          "200": { "description": "Ticket, requester, instructions, and conversation", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "operationId": "updateTicket",
+        "summary": "Change ticket status, priority, or assignee",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateTicket" } } } },
+        "responses": {
+          "200": { "description": "Updated ticket context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/tickets/{number}/replies": {
+      "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
+      "post": {
+        "operationId": "replyToTicket",
+        "summary": "Atomically add a public reply and set its resulting status",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddReply" } } } },
+        "responses": {
+          "200": { "description": "Updated ticket context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/tickets/{number}/notes": {
+      "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
+      "post": {
+        "operationId": "addTicketNote",
+        "summary": "Add a support-only internal note",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddNote" } } } },
+        "responses": {
+          "200": { "description": "Updated ticket context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/projects/{projectId}": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "patch": {
+        "operationId": "updateProject",
+        "summary": "Change a visible project's key or name as an administrator or administrator agent",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object",
+          "properties": { "key": { "type": "string", "minLength": 1, "maxLength": 32 }, "name": { "type": "string", "minLength": 1, "maxLength": 200 } },
+          "additionalProperties": false
+        } } } },
+        "responses": {
+          "200": { "description": "Updated project", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectSummary" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/projects/{projectId}/support-instructions": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "get": {
+        "operationId": "getSupportInstructions",
+        "summary": "Read the visible project's Markdown support instructions",
+        "responses": {
+          "200": { "description": "Support instructions", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SupportInstructions" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "operationId": "updateSupportInstructions",
+        "summary": "Replace support instructions as an administrator or administrator agent",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["markdown"], "properties": { "markdown": { "type": "string" } }, "additionalProperties": false } } } },
+        "responses": {
+          "200": { "description": "Updated support instructions", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SupportInstructions" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "browserSession": { "type": "apiKey", "in": "cookie", "name": "helpaffe_session" },
+      "agentToken": { "type": "http", "scheme": "bearer", "bearerFormat": "hfa_ token" }
+    },
+    "parameters": {
+      "TicketNumber": { "name": "number", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 32 }, "example": "HLP-42" }
+    },
+    "responses": {
+      "BadRequest": { "description": "Validation or cursor error", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Unauthenticated": { "description": "Credential missing, unknown, or revoked", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Forbidden": { "description": "The actor cannot perform this operation", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "NotFound": { "description": "Resource absent or outside project scope", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
+    },
+    "schemas": {
+      "TicketStatus": { "type": "string", "enum": ["open", "in_progress", "waiting_for_customer", "resolved"] },
+      "TicketPriority": { "type": "string", "enum": ["normal", "urgent"] },
+      "ProjectSummary": {
+        "type": "object",
+        "required": ["id", "key", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "key": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "UserSummary": {
+        "type": ["object", "null"],
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "TicketSummary": {
+        "type": "object",
+        "required": ["id", "number", "project", "subject", "status", "priority", "assignee", "created_at", "updated_at", "last_customer_reply_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "number": { "type": "string" },
+          "project": { "$ref": "#/components/schemas/ProjectSummary" },
+          "subject": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/TicketStatus" },
+          "priority": { "$ref": "#/components/schemas/TicketPriority" },
+          "assignee": { "$ref": "#/components/schemas/UserSummary" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "last_customer_reply_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "TicketPage": {
+        "type": "object",
+        "required": ["items", "next_cursor"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/TicketSummary" } },
+          "next_cursor": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "Requester": {
+        "type": "object",
+        "required": ["external_user_id", "name", "email"],
+        "properties": {
+          "external_user_id": { "type": "string" },
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" }
+        },
+        "additionalProperties": false
+      },
+      "Actor": {
+        "type": ["object", "null"],
+        "required": ["user_id", "user_name", "agent_id", "agent_name"],
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "user_name": { "type": ["string", "null"] },
+          "agent_id": { "type": ["string", "null"], "format": "uuid" },
+          "agent_name": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "ConversationEntry": {
+        "type": "object",
+        "required": ["id", "sequence", "kind", "body", "is_public", "created_at", "actor"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sequence": { "type": "integer", "minimum": 1 },
+          "kind": { "type": "string", "enum": ["customer_message", "public_reply", "internal_note", "system_event"] },
+          "body": { "type": "string" },
+          "is_public": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "actor": { "$ref": "#/components/schemas/Actor" }
+        },
+        "additionalProperties": false
+      },
+      "TicketDetail": {
+        "type": "object",
+        "required": ["summary", "requester", "support_instructions", "conversation"],
+        "properties": {
+          "summary": { "$ref": "#/components/schemas/TicketSummary" },
+          "requester": { "$ref": "#/components/schemas/Requester" },
+          "support_instructions": { "type": "string" },
+          "conversation": { "type": "array", "items": { "$ref": "#/components/schemas/ConversationEntry" } }
+        },
+        "additionalProperties": false
+      },
+      "UpdateTicket": {
+        "type": "object",
+        "properties": {
+          "status": { "$ref": "#/components/schemas/TicketStatus" },
+          "priority": { "$ref": "#/components/schemas/TicketPriority" },
+          "assignee_id": { "type": ["string", "null"], "format": "uuid" },
+          "clear_assignee": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      },
+      "AddReply": {
+        "type": "object",
+        "required": ["message", "status"],
+        "properties": {
+          "message": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["in_progress", "waiting_for_customer", "resolved"] }
+        },
+        "additionalProperties": false
+      },
+      "AddNote": {
+        "type": "object",
+        "required": ["message"],
+        "properties": { "message": { "type": "string", "minLength": 1 } },
+        "additionalProperties": false
+      },
+      "SupportInstructions": {
+        "type": "object",
+        "required": ["project_id", "project_key", "markdown"],
+        "properties": {
+          "project_id": { "type": "string", "format": "uuid" },
+          "project_key": { "type": "string" },
+          "markdown": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "Problem": {
+        "type": "object",
+        "required": ["type", "title", "status", "detail"],
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" },
+          "instance": { "type": "string" }
+        }
+      }
+    }
+  }
+}

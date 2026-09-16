@@ -18,6 +18,7 @@ public sealed class ProjectRecord
     public Guid Id { get; init; }
     public required string Key { get; set; }
     public required string Name { get; set; }
+    public string SupportInstructions { get; set; } = string.Empty;
 }
 
 public sealed class UserProjectAccessRecord

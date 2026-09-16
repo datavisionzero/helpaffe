@@ -147,9 +147,9 @@ export function App() {
         method: "POST",
         body: JSON.stringify({
           name: data.get("name"),
-          userId: data.get("userId") || undefined,
-          allProjects: agentAllProjects,
-          projectIds: agentAllProjects ? [] : data.getAll("projectId"),
+          user_id: data.get("userId") || undefined,
+          all_projects: agentAllProjects,
+          project_ids: agentAllProjects ? [] : data.getAll("projectId"),
         }),
       });
       setRevealedSecret({ label: `Token for ${created.credential.name}`, token: created.token });
@@ -197,7 +197,7 @@ export function App() {
     }
   }
 
-  async function updateUser(id: string, update: { role?: Role; isActive?: boolean }) {
+  async function updateUser(id: string, update: { role?: Role; is_active?: boolean }) {
     try {
       await call<ManagedUser>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(update) });
       await refresh();
@@ -267,7 +267,7 @@ export function App() {
               <label>Role<select aria-label={`Role for ${managedUser.name}`} value={managedUser.role} onChange={event => void updateUser(managedUser.id, { role: event.target.value as Role })}>
                 <option value="administrator">Administrator</option><option value="support">Support</option>
               </select></label>
-              <button className="secondary" onClick={() => void updateUser(managedUser.id, { isActive: !managedUser.is_active })}>{managedUser.is_active ? "Deactivate" : "Reactivate"}</button>
+              <button className="secondary" onClick={() => void updateUser(managedUser.id, { is_active: !managedUser.is_active })}>{managedUser.is_active ? "Deactivate" : "Reactivate"}</button>
             </div>
             {managedUser.role === "support" && <fieldset><legend>Project access</legend><div className="access-list">
               {projects.length === 0 ? <span className="muted">Create a project before assigning access.</span> : projects.map(project => <label key={project.id}>

@@ -17,6 +17,7 @@ public static class BackofficeRoutes
         group.MapGet("/me", (HttpContext context) => Results.Ok(ActorShape(context.Actor()!)));
         group.MapGet("/projects", ListProjects);
         group.MapPost("/projects", CreateProject);
+        group.MapPatch("/projects/{id:guid}", UpdateProject);
         group.MapGet("/users", ListUsers);
         group.MapPost("/users", CreateUser);
         group.MapPatch("/users/{id:guid}", UpdateUser);
@@ -132,6 +133,27 @@ public static class BackofficeRoutes
         return Results.Ok(users.Select(user => UserShape(user, access
             .Where(item => item.UserId == user.Id)
             .Select(item => item.ProjectId))));
+    }
+
+    private static async Task<IResult> UpdateProject(
+        Guid id,
+        UpdateProjectRequest request,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        if (!context.IsAdministrator()) return Forbidden();
+        if (request.Key is not null && string.IsNullOrWhiteSpace(request.Key) ||
+            request.Name is not null && string.IsNullOrWhiteSpace(request.Name) ||
+            request.Key is null && request.Name is null)
+            return ApiProblem(400, "validation", "A non-empty project key or name is required.");
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        if (!await context.VisibleProjects(database).AnyAsync(value => value.Id == id, context.RequestAborted))
+            return ApiProblem(404, "not-found", "The project was not found in the caller's project scope.");
+        var project = await database.Projects.SingleAsync(value => value.Id == id, context.RequestAborted);
+        if (request.Key is not null) project.Key = request.Key.Trim().ToUpperInvariant();
+        if (request.Name is not null) project.Name = request.Name.Trim();
+        await database.SaveChangesAsync(context.RequestAborted);
+        return Results.Ok(new { project.Id, project.Key, project.Name });
     }
 
     private static async Task<IResult> CreateUser(
@@ -422,10 +444,11 @@ public static class BackofficeRoutes
     private static IResult ApiProblem(int status, string code, string detail) => Results.Json(new
     {
         type = $"/problems/{code}", title = code.Replace('-', ' '), status, detail,
-    }, statusCode: status);
+    }, contentType: "application/problem+json", statusCode: status);
 
     private sealed record SignInRequest(string Email, string Password);
     private sealed record CreateProjectRequest(string Key, string Name);
+    private sealed record UpdateProjectRequest(string? Key, string? Name);
     private sealed record CreateUserRequest(string Name, string Email, string Password, string Role);
     private sealed record UpdateUserRequest(string? Role, bool? IsActive);
     private sealed record CreateAgentRequest(string Name, Guid? UserId, bool AllProjects, Guid[]? ProjectIds);

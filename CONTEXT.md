@@ -20,6 +20,10 @@ _Avoid_: Agent, requester
 The named agent credential that performed an action for a support user. It supplements the responsible human identity and never replaces it.
 _Avoid_: Assignee, user token
 
+**Support Instructions**:
+The single project-specific Markdown document that gives support users and their agents product context, important links, known constraints, and communication guidance.
+_Avoid_: Knowledge base, customer-facing documentation
+
 ## Tickets
 
 **Ticket**:

@@ -116,7 +116,7 @@ public sealed class FoundationTests : IAsyncLifetime
 
         var deactivate = new HttpRequestMessage(HttpMethod.Patch, $"/api/backoffice/users/{userId}")
         {
-            Content = JsonContent.Create(new { isActive = false }),
+            Content = JsonContent.Create(new { is_active = false }),
         };
         var deactivated = await admin.SendAsync(deactivate, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, deactivated.StatusCode);

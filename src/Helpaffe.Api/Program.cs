@@ -1,6 +1,8 @@
 using Helpaffe.Api.Hosting;
 using Helpaffe.Api.Http;
 using Helpaffe.Infrastructure.Persistence;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -10,6 +12,11 @@ var connectionString = builder.Configuration.GetConnectionString("Database")
     ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
 
 builder.Services.AddDbContextFactory<HelpaffeDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
+    options.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+});
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
     .AddCheck<DatabaseHealthCheck>("postgresql", tags: ["ready"]);
@@ -42,6 +49,7 @@ app.MapGet("/api/backoffice/version", () => Results.Ok(new
     version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
 }));
 app.MapBackoffice();
+app.MapTickets();
 app.MapProduct();
 
 app.UseDefaultFiles();

@@ -161,6 +161,7 @@ when an agent belongs to an administrator.
 | `GET /api/backoffice/me` | Read the signed-in user |
 | `GET /api/backoffice/projects` | List every project for an administrator or assigned projects for support |
 | `POST /api/backoffice/projects` | Create a project as an administrator |
+| `PATCH /api/backoffice/projects/{id}` | Change a visible project's key or name as an administrator or administrator agent |
 | `GET /api/backoffice/users` | List users and their project assignments as an administrator |
 | `POST /api/backoffice/users` | Create an administrator or support user |
 | `PATCH /api/backoffice/users/{id}` | Change role or activation state |
@@ -189,3 +190,24 @@ and project access on every request, so later grants are included automatically.
 A selected-project agent receives the intersection of its stored selection and
 the owner's current access. Revocation, user deactivation, role changes, and
 project-access removal therefore take effect on the next request.
+
+## Ticket support operations
+
+The checked-in [`backoffice.openapi.json`](api/backoffice.openapi.json) defines
+the support contract shared by the web application and CLI. Its first ticket
+operations are:
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/backoffice/tickets` | Filter visible tickets by status, priority, project, assignee, `mine`, or text search with a bound cursor |
+| `GET /api/backoffice/tickets/{number}` | Read the requester, complete conversation, actor attribution, and project support instructions together |
+| `PATCH /api/backoffice/tickets/{number}` | Change status, priority, or eligible human assignee |
+| `POST /api/backoffice/tickets/{number}/replies` | Atomically add a public reply and its resulting status |
+| `POST /api/backoffice/tickets/{number}/notes` | Add an internal support note |
+| `GET /api/backoffice/projects/{projectId}/support-instructions` | Read project Markdown instructions within current project scope |
+| `PUT /api/backoffice/projects/{projectId}/support-instructions` | Replace instructions as an administrator or administrator agent |
+
+Ticket resources outside the caller's current human-and-agent project
+intersection return `not-found`. An assignee must be active and currently able
+to access the ticket's project. `mine=true` means tickets assigned to the human
+user, including work performed for that user by any of their named agents.

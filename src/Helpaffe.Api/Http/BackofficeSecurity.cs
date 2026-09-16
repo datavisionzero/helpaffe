@@ -122,6 +122,7 @@ public static class BackofficeSecurity
     public static Task Problem(HttpContext context, int status, string code, string detail)
     {
         context.Response.StatusCode = status;
+        context.Response.ContentType = "application/problem+json";
         return context.Response.WriteAsJsonAsync(new
         {
             type = $"/problems/{code}",

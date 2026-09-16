@@ -31,7 +31,7 @@ public sealed class CredentialBoundaryTests : IAsyncLifetime
         var secondProject = await CreateProject(admin, "SECOND", "Second product");
         var adminAgentResponse = await PostJson(admin, "/api/backoffice/agents", new
         {
-            name = "Administrator agent", allProjects = true, projectIds = Array.Empty<Guid>(),
+            name = "Administrator agent", all_projects = true, project_ids = Array.Empty<Guid>(),
         });
         Assert.Equal(HttpStatusCode.Created, adminAgentResponse.StatusCode);
         using var adminAgent = BearerClient(factory, (await Read(adminAgentResponse)).GetProperty("token").GetString()!);
@@ -41,7 +41,7 @@ public sealed class CredentialBoundaryTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden,
             (await adminAgent.GetAsync("/api/backoffice/users", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await PostJson(adminAgent, "/api/backoffice/agents", new { name = "Forbidden", allProjects = true })).StatusCode);
+            (await PostJson(adminAgent, "/api/backoffice/agents", new { name = "Forbidden", all_projects = true })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await PostJson(adminAgent, $"/api/backoffice/projects/{firstProject}/product-keys", new { name = "Forbidden" })).StatusCode);
         var support = await CreateSupport(admin);
@@ -50,13 +50,13 @@ public sealed class CredentialBoundaryTests : IAsyncLifetime
         using var supportBrowser = await SignIn(factory, "support@example.test", SupportPassword);
         var invalidSubset = await PostJson(supportBrowser, "/api/backoffice/agents", new
         {
-            name = "Too broad", allProjects = false, projectIds = new[] { secondProject },
+            name = "Too broad", all_projects = false, project_ids = new[] { secondProject },
         });
         Assert.Equal(HttpStatusCode.Forbidden, invalidSubset.StatusCode);
 
         var scopedAgentResponse = await PostJson(supportBrowser, "/api/backoffice/agents", new
         {
-            name = "First project only", allProjects = false, projectIds = new[] { firstProject },
+            name = "First project only", all_projects = false, project_ids = new[] { firstProject },
         });
         Assert.Equal(HttpStatusCode.Created, scopedAgentResponse.StatusCode);
         var scopedAgentToken = (await Read(scopedAgentResponse)).GetProperty("token").GetString()!;
@@ -65,8 +65,8 @@ public sealed class CredentialBoundaryTests : IAsyncLifetime
         var createdAgent = await PostJson(supportBrowser, "/api/backoffice/agents", new
         {
             name = "Support agent",
-            allProjects = true,
-            projectIds = Array.Empty<Guid>(),
+            all_projects = true,
+            project_ids = Array.Empty<Guid>(),
         });
         Assert.Equal(HttpStatusCode.Created, createdAgent.StatusCode);
         var agentDocument = await Read(createdAgent);
@@ -87,7 +87,7 @@ public sealed class CredentialBoundaryTests : IAsyncLifetime
 
         var agentCreatesAgent = await PostJson(agent, "/api/backoffice/agents", new
         {
-            name = "Forbidden", allProjects = true, projectIds = Array.Empty<Guid>(),
+            name = "Forbidden", all_projects = true, project_ids = Array.Empty<Guid>(),
         });
         Assert.Equal(HttpStatusCode.Forbidden, agentCreatesAgent.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
@@ -106,7 +106,7 @@ public sealed class CredentialBoundaryTests : IAsyncLifetime
 
         var deactivate = new HttpRequestMessage(HttpMethod.Patch, $"/api/backoffice/users/{support}")
         {
-            Content = JsonContent.Create(new { isActive = false }),
+            Content = JsonContent.Create(new { is_active = false }),
         };
         var deactivated = await admin.SendAsync(deactivate, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, deactivated.StatusCode);

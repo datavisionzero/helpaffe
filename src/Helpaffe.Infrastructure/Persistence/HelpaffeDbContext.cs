@@ -48,6 +48,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         project.Property(value => value.Key).HasMaxLength(32);
         project.HasIndex(value => value.Key).IsUnique();
         project.Property(value => value.Name).HasMaxLength(200);
+        project.Property(value => value.SupportInstructions).HasColumnName("support_instructions");
 
         var access = modelBuilder.Entity<UserProjectAccessRecord>();
         access.ToTable("user_project_access");
