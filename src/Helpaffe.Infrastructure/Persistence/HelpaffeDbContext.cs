@@ -11,6 +11,9 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
     public DbSet<ProjectRecord> Projects => Set<ProjectRecord>();
     public DbSet<UserProjectAccessRecord> UserProjectAccess => Set<UserProjectAccessRecord>();
     public DbSet<BrowserSessionRecord> BrowserSessions => Set<BrowserSessionRecord>();
+    public DbSet<AgentCredentialRecord> AgentCredentials => Set<AgentCredentialRecord>();
+    public DbSet<AgentProjectAccessRecord> AgentProjectAccess => Set<AgentProjectAccessRecord>();
+    public DbSet<ProductApiKeyRecord> ProductApiKeys => Set<ProductApiKeyRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,5 +58,29 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         session.Property(value => value.TokenHash).HasMaxLength(64);
         session.HasIndex(value => value.TokenHash).IsUnique();
         session.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.UserId).OnDelete(DeleteBehavior.Cascade);
+
+        var agent = modelBuilder.Entity<AgentCredentialRecord>();
+        agent.ToTable("agent_credentials");
+        agent.HasKey(value => value.Id);
+        agent.Property(value => value.Name).HasMaxLength(200);
+        agent.Property(value => value.TokenHash).HasColumnName("token_hash").HasMaxLength(64);
+        agent.Property(value => value.TokenPrefix).HasColumnName("token_prefix").HasMaxLength(12);
+        agent.HasIndex(value => value.TokenHash).IsUnique();
+        agent.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.UserId).OnDelete(DeleteBehavior.Cascade);
+
+        var agentAccess = modelBuilder.Entity<AgentProjectAccessRecord>();
+        agentAccess.ToTable("agent_project_access");
+        agentAccess.HasKey(value => new { value.AgentCredentialId, value.ProjectId });
+        agentAccess.HasOne<AgentCredentialRecord>().WithMany().HasForeignKey(value => value.AgentCredentialId).OnDelete(DeleteBehavior.Cascade);
+        agentAccess.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
+
+        var productKey = modelBuilder.Entity<ProductApiKeyRecord>();
+        productKey.ToTable("product_api_keys");
+        productKey.HasKey(value => value.Id);
+        productKey.Property(value => value.Name).HasMaxLength(200);
+        productKey.Property(value => value.TokenHash).HasColumnName("token_hash").HasMaxLength(64);
+        productKey.Property(value => value.TokenPrefix).HasColumnName("token_prefix").HasMaxLength(12);
+        productKey.HasIndex(value => value.TokenHash).IsUnique();
+        productKey.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
     }
 }

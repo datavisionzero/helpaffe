@@ -147,11 +147,12 @@ clients. Authentication logs contain credential kind, prefix, and actor id, but
 never a secret, session cookie, password, SMTP password, or full authorization
 header.
 
-## Initial browser-session operations
+## Initial access operations
 
-The first backoffice slice uses these browser operations. All writes after
-sign-in require `X-Helpaffe-CSRF: 1`; administrative operations additionally
-require the `administrator` role.
+The first backoffice slice uses these access operations. Browser writes after
+sign-in require `X-Helpaffe-CSRF: 1`; bearer-authenticated agent writes do not.
+User, access, agent-credential, and product-key management is human-only even
+when an agent belongs to an administrator.
 
 | Method and path | Purpose |
 | --- | --- |
@@ -165,7 +166,26 @@ require the `administrator` role.
 | `PATCH /api/backoffice/users/{id}` | Change role or activation state |
 | `PUT /api/backoffice/users/{userId}/projects/{projectId}` | Grant project access |
 | `DELETE /api/backoffice/users/{userId}/projects/{projectId}` | Revoke project access |
+| `GET /api/backoffice/agents` | List the signed-in human's agents, or all agents for an administrator |
+| `POST /api/backoffice/agents` | Create a named agent credential and return its token once |
+| `DELETE /api/backoffice/agents/{id}` | Revoke an owned agent, or any agent as an administrator |
+| `GET /api/backoffice/product-keys` | List product-key metadata as an administrator |
+| `POST /api/backoffice/projects/{projectId}/product-keys` | Create a project-bound product key and return it once |
+| `DELETE /api/backoffice/product-keys/{id}` | Revoke one product key without affecting the project's other keys |
+| `GET /api/product/project` | Read the project bound to the presented product API key |
 
 User creation requires a password of at least 12 characters. The final active
 administrator cannot be deactivated or changed to support. Deactivating a user
 revokes all browser sessions immediately.
+
+Named agent tokens begin with `hfa_` and authenticate only on the backoffice
+route family. Product API keys begin with `hfp_` and authenticate only on the
+product route family. The complete value is present only in a successful create
+response; subsequent reads expose its non-secret prefix. Multiple product keys
+may remain active for one project so callers can rotate them without downtime.
+
+An agent configured for all allowed projects evaluates its owner's current role
+and project access on every request, so later grants are included automatically.
+A selected-project agent receives the intersection of its stored selection and
+the owner's current access. Revocation, user deactivation, role changes, and
+project-access removal therefore take effect on the next request.

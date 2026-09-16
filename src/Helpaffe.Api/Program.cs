@@ -26,6 +26,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 await BootstrapAdministrator.EnsureAsync(app.Services, app.Configuration);
 
 app.Use(BackofficeSecurity.AuthenticateAsync);
+app.Use(ProductSecurity.AuthenticateAsync);
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
@@ -41,6 +42,7 @@ app.MapGet("/api/backoffice/version", () => Results.Ok(new
     version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
 }));
 app.MapBackoffice();
+app.MapProduct();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

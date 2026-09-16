@@ -14,7 +14,7 @@ public static class BackofficeRoutes
 
         group.MapPost("/session", SignIn);
         group.MapDelete("/session", SignOut);
-        group.MapGet("/me", (HttpContext context) => Results.Ok(UserShape(context.User()!)));
+        group.MapGet("/me", (HttpContext context) => Results.Ok(ActorShape(context.Actor()!)));
         group.MapGet("/projects", ListProjects);
         group.MapPost("/projects", CreateProject);
         group.MapGet("/users", ListUsers);
@@ -22,6 +22,12 @@ public static class BackofficeRoutes
         group.MapPatch("/users/{id:guid}", UpdateUser);
         group.MapPut("/users/{userId:guid}/projects/{projectId:guid}", GrantProject);
         group.MapDelete("/users/{userId:guid}/projects/{projectId:guid}", RevokeProject);
+        group.MapGet("/agents", ListAgents);
+        group.MapPost("/agents", CreateAgent);
+        group.MapDelete("/agents/{id:guid}", RevokeAgent);
+        group.MapGet("/product-keys", ListProductKeys);
+        group.MapPost("/projects/{projectId:guid}/product-keys", CreateProductKey);
+        group.MapDelete("/product-keys/{id:guid}", RevokeProductKey);
 
         return endpoints;
     }
@@ -32,6 +38,8 @@ public static class BackofficeRoutes
         IDbContextFactory<HelpaffeDbContext> factory)
     {
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrEmpty(request.Password))
+            return ApiProblem(401, "unauthenticated", "The email address or password is incorrect.");
         var normalized = request.Email.Trim().ToUpperInvariant();
         var user = await database.Users.SingleOrDefaultAsync(
             value => value.NormalizedEmail == normalized,
@@ -48,7 +56,7 @@ public static class BackofficeRoutes
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
-            TokenHash = BackofficeSecurity.HashToken(token),
+            TokenHash = AccessToken.Hash(token),
             ExpiresAt = expires,
         });
         await database.SaveChangesAsync(context.RequestAborted);
@@ -67,10 +75,11 @@ public static class BackofficeRoutes
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory)
     {
+        if (!context.IsHuman()) return HumanOnly();
         if (context.Request.Cookies.TryGetValue(BackofficeSecurity.CookieName, out var token))
         {
             await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
-            var hash = BackofficeSecurity.HashToken(token);
+            var hash = AccessToken.Hash(token);
             await database.BrowserSessions.Where(value => value.TokenHash == hash)
                 .ExecuteDeleteAsync(context.RequestAborted);
         }
@@ -83,14 +92,8 @@ public static class BackofficeRoutes
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory)
     {
-        var current = context.User()!;
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
-        var query = database.Projects.AsNoTracking();
-        if (current.Role is not UserRole.Administrator)
-        {
-            query = query.Where(project => database.UserProjectAccess.Any(
-                access => access.UserId == current.Id && access.ProjectId == project.Id));
-        }
+        var query = context.VisibleProjects(database);
 
         return Results.Ok(await query.OrderBy(project => project.Name)
             .Select(project => new { project.Id, project.Key, project.Name })
@@ -122,7 +125,7 @@ public static class BackofficeRoutes
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory)
     {
-        if (!context.IsAdministrator()) return Forbidden();
+        if (!context.IsHumanAdministrator()) return Forbidden();
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
         var users = await database.Users.AsNoTracking().OrderBy(user => user.Name).ToListAsync(context.RequestAborted);
         var access = await database.UserProjectAccess.AsNoTracking().ToListAsync(context.RequestAborted);
@@ -136,8 +139,8 @@ public static class BackofficeRoutes
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory)
     {
-        if (!context.IsAdministrator()) return Forbidden();
-        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Email) || request.Password.Length < 12)
+        if (!context.IsHumanAdministrator()) return Forbidden();
+        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Email) || request.Password is null || request.Password.Length < 12)
             return ApiProblem(400, "validation", "Name, email, and a password of at least 12 characters are required.");
         if (!TryRole(request.Role, out var role)) return ApiProblem(400, "validation", "Role must be administrator or support.");
 
@@ -162,7 +165,7 @@ public static class BackofficeRoutes
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory)
     {
-        if (!context.IsAdministrator()) return Forbidden();
+        if (!context.IsHumanAdministrator()) return Forbidden();
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
         var user = await database.Users.FindAsync([id], context.RequestAborted);
         if (user is null) return ApiProblem(404, "not-found", "The user was not found.");
@@ -196,7 +199,7 @@ public static class BackofficeRoutes
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory)
     {
-        if (!context.IsAdministrator()) return Forbidden();
+        if (!context.IsHumanAdministrator()) return Forbidden();
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
         if (!await database.Users.AnyAsync(value => value.Id == userId, context.RequestAborted) ||
             !await database.Projects.AnyAsync(value => value.Id == projectId, context.RequestAborted))
@@ -209,6 +212,195 @@ public static class BackofficeRoutes
         await database.SaveChangesAsync(context.RequestAborted);
         return Results.NoContent();
     }
+
+    private static async Task<IResult> ListAgents(
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        if (!context.IsHuman()) return HumanOnly();
+        var current = context.User()!;
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var query = database.AgentCredentials.AsNoTracking();
+        if (current.Role is not UserRole.Administrator)
+            query = query.Where(value => value.UserId == current.Id);
+        var credentials = await query.OrderBy(value => value.Name).ToListAsync(context.RequestAborted);
+        var userIds = credentials.Select(value => value.UserId).Distinct().ToArray();
+        var users = await database.Users.AsNoTracking().Where(value => userIds.Contains(value.Id))
+            .ToDictionaryAsync(value => value.Id, context.RequestAborted);
+        var credentialIds = credentials.Select(value => value.Id).ToArray();
+        var access = await database.AgentProjectAccess.AsNoTracking()
+            .Where(value => credentialIds.Contains(value.AgentCredentialId))
+            .ToListAsync(context.RequestAborted);
+        return Results.Ok(credentials.Select(value => AgentShape(value, users[value.UserId], access
+            .Where(item => item.AgentCredentialId == value.Id)
+            .Select(item => item.ProjectId))));
+    }
+
+    private static async Task<IResult> CreateAgent(
+        CreateAgentRequest request,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        if (!context.IsHuman()) return HumanOnly();
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return ApiProblem(400, "validation", "An agent name is required.");
+        var current = context.User()!;
+        var targetUserId = request.UserId ?? current.Id;
+        if (current.Role is not UserRole.Administrator && targetUserId != current.Id) return Forbidden();
+
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var owner = await database.Users.SingleOrDefaultAsync(
+            value => value.Id == targetUserId,
+            context.RequestAborted);
+        if (owner is null) return ApiProblem(404, "not-found", "The user was not found.");
+        if (!owner.IsActive) return ApiProblem(409, "inactive-user", "An agent cannot be created for an inactive user.");
+
+        var requestedProjectIds = (request.ProjectIds ?? []).Distinct().ToArray();
+        if (!request.AllProjects)
+        {
+            IQueryable<Guid> allowedProjectIds = database.Projects.Select(value => value.Id);
+            if (owner.Role is not UserRole.Administrator)
+                allowedProjectIds = database.UserProjectAccess.Where(value => value.UserId == owner.Id).Select(value => value.ProjectId);
+            var allowed = await allowedProjectIds.CountAsync(
+                value => requestedProjectIds.Contains(value),
+                context.RequestAborted);
+            if (allowed != requestedProjectIds.Length)
+                return ApiProblem(403, "forbidden", "The agent scope must be a subset of its user's current project access.");
+        }
+
+        var generated = AccessToken.Create("a");
+        var credential = new AgentCredentialRecord
+        {
+            Id = Guid.NewGuid(),
+            UserId = owner.Id,
+            Name = request.Name.Trim(),
+            TokenHash = generated.Hash,
+            TokenPrefix = generated.Prefix,
+            AllProjects = request.AllProjects,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        database.AgentCredentials.Add(credential);
+        if (!request.AllProjects)
+        {
+            database.AgentProjectAccess.AddRange(requestedProjectIds.Select(projectId => new AgentProjectAccessRecord
+            {
+                AgentCredentialId = credential.Id,
+                ProjectId = projectId,
+            }));
+        }
+        await database.SaveChangesAsync(context.RequestAborted);
+        return Results.Created($"/api/backoffice/agents/{credential.Id}", new
+        {
+            credential = AgentShape(credential, owner, requestedProjectIds),
+            token = generated.Token,
+        });
+    }
+
+    private static async Task<IResult> RevokeAgent(
+        Guid id,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        if (!context.IsHuman()) return HumanOnly();
+        var current = context.User()!;
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var credential = await database.AgentCredentials.FindAsync([id], context.RequestAborted);
+        if (credential is null || current.Role is not UserRole.Administrator && credential.UserId != current.Id)
+            return ApiProblem(404, "not-found", "The agent credential was not found.");
+        credential.RevokedAt ??= DateTimeOffset.UtcNow;
+        await database.SaveChangesAsync(context.RequestAborted);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> ListProductKeys(
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        if (!context.IsHumanAdministrator()) return Forbidden();
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var projects = await database.Projects.AsNoTracking().ToDictionaryAsync(value => value.Id, context.RequestAborted);
+        var credentials = await database.ProductApiKeys.AsNoTracking().OrderBy(value => value.Name).ToListAsync(context.RequestAborted);
+        return Results.Ok(credentials.Select(value => ProductKeyShape(value, projects[value.ProjectId])));
+    }
+
+    private static async Task<IResult> CreateProductKey(
+        Guid projectId,
+        CreateProductKeyRequest request,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        if (!context.IsHumanAdministrator()) return Forbidden();
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return ApiProblem(400, "validation", "A product API key name is required.");
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var project = await database.Projects.FindAsync([projectId], context.RequestAborted);
+        if (project is null) return ApiProblem(404, "not-found", "The project was not found.");
+        var generated = AccessToken.Create("p");
+        var credential = new ProductApiKeyRecord
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = request.Name.Trim(),
+            TokenHash = generated.Hash,
+            TokenPrefix = generated.Prefix,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        database.ProductApiKeys.Add(credential);
+        await database.SaveChangesAsync(context.RequestAborted);
+        return Results.Created($"/api/backoffice/product-keys/{credential.Id}", new
+        {
+            credential = ProductKeyShape(credential, project),
+            token = generated.Token,
+        });
+    }
+
+    private static async Task<IResult> RevokeProductKey(
+        Guid id,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        if (!context.IsHumanAdministrator()) return Forbidden();
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var credential = await database.ProductApiKeys.FindAsync([id], context.RequestAborted);
+        if (credential is null) return ApiProblem(404, "not-found", "The product API key was not found.");
+        credential.RevokedAt ??= DateTimeOffset.UtcNow;
+        await database.SaveChangesAsync(context.RequestAborted);
+        return Results.NoContent();
+    }
+
+    private static object ActorShape(BackofficeActor actor) => new
+    {
+        actor.User.Id,
+        actor.User.Email,
+        actor.User.Name,
+        role = actor.User.Role is UserRole.Administrator ? "administrator" : "support",
+        actor_kind = actor.Kind is BackofficeActorKind.Human ? "human" : "agent",
+        agent = actor.Agent is null ? null : new { actor.Agent.Id, actor.Agent.Name },
+    };
+
+    private static object AgentShape(AgentCredentialRecord credential, UserRecord owner, IEnumerable<Guid> projectIds) => new
+    {
+        credential.Id,
+        user_id = owner.Id,
+        user_name = owner.Name,
+        credential.Name,
+        token_prefix = credential.TokenPrefix,
+        all_projects = credential.AllProjects,
+        project_ids = projectIds,
+        is_active = credential.RevokedAt is null,
+        created_at = credential.CreatedAt,
+    };
+
+    private static object ProductKeyShape(ProductApiKeyRecord credential, ProjectRecord project) => new
+    {
+        credential.Id,
+        project_id = project.Id,
+        project_name = project.Name,
+        credential.Name,
+        token_prefix = credential.TokenPrefix,
+        is_active = credential.RevokedAt is null,
+        created_at = credential.CreatedAt,
+    };
 
     private static object UserShape(UserRecord user, IEnumerable<Guid>? projectIds = null) => new
     {
@@ -225,6 +417,8 @@ public static class BackofficeRoutes
 
     private static IResult Forbidden() => ApiProblem(403, "forbidden", "Administrator access is required.");
 
+    private static IResult HumanOnly() => ApiProblem(403, "forbidden", "This action requires a signed-in human user.");
+
     private static IResult ApiProblem(int status, string code, string detail) => Results.Json(new
     {
         type = $"/problems/{code}", title = code.Replace('-', ' '), status, detail,
@@ -234,4 +428,6 @@ public static class BackofficeRoutes
     private sealed record CreateProjectRequest(string Key, string Name);
     private sealed record CreateUserRequest(string Name, string Email, string Password, string Role);
     private sealed record UpdateUserRequest(string? Role, bool? IsActive);
+    private sealed record CreateAgentRequest(string Name, Guid? UserId, bool AllProjects, Guid[]? ProjectIds);
+    private sealed record CreateProductKeyRequest(string Name);
 }

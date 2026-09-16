@@ -92,6 +92,27 @@ to deactivate or demote the last active administrator. Passwords and session
 tokens are stored only as hashes and must never be placed in logs or committed
 environment files.
 
+## Agent and product credentials
+
+Every automation must have its own named agent credential. A support user can
+create and revoke credentials for their own account in **Agent credentials**;
+an administrator can choose any user as the owner. Select either all projects
+the owner may access or an explicit subset. The all-projects option follows
+future grants automatically. Both modes are always intersected with the
+owner's current access.
+
+Administrators create project-bound integration keys in **Product API keys**.
+Keep at least two keys active during a rotation, update the product backend,
+verify it uses the new key, and then revoke the old key. Product keys work only
+under `/api/product`; agent tokens work only under `/api/backoffice`.
+
+Agent tokens and product API keys are shown exactly once after creation. Copy
+them directly into the intended secret store. helpaffe persists only a SHA-256
+hash and a short display prefix, so a lost value cannot be recovered and must
+be replaced. Never put a token in source control, screenshots, command history,
+URLs, or application logs. Revocation and owner deactivation take effect on the
+next request.
+
 ## Persistence smoke test
 
 The repeatable verification for an empty database and a restart is:

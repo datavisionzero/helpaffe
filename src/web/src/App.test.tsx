@@ -17,6 +17,8 @@ it("lets an administrator manage roles and project access", async () => {
     const path = String(input);
     if (path.endsWith("/me")) return response({ id: "admin", email: "admin@example.test", name: "Admin", role: "administrator" });
     if (path.endsWith("/projects")) return response([{ id: "project-1", key: "DOCS", name: "Documentation" }]);
+    if (path.endsWith("/agents")) return response([]);
+    if (path.endsWith("/product-keys")) return response([]);
     if (path.endsWith("/users")) return response([{ id: "support-1", email: "support@example.test", name: "Support", role: "support", is_active: true, project_ids: [] }]);
     if (path.includes("/users/support-1/projects/project-1") && init?.method === "PUT") return response(undefined, 204);
     throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
@@ -39,6 +41,7 @@ it("does not expose administration to a support user", async () => {
     const path = String(input);
     if (path.endsWith("/me")) return response({ id: "support", email: "support@example.test", name: "Support", role: "support" });
     if (path.endsWith("/projects")) return response([]);
+    if (path.endsWith("/agents")) return response([]);
     throw new Error(`Unexpected request: ${path}`);
   }));
 
@@ -47,6 +50,30 @@ it("does not expose administration to a support user", async () => {
   expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "People" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Add project" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Agent credentials" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Product API keys" })).not.toBeInTheDocument();
+});
+
+it("shows a newly created agent token once", async () => {
+  const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const path = String(input);
+    if (path.endsWith("/me")) return response({ id: "support", email: "support@example.test", name: "Support", role: "support" });
+    if (path.endsWith("/projects")) return response([{ id: "project-1", key: "DOCS", name: "Documentation" }]);
+    if (path.endsWith("/agents") && init?.method === "POST") return response({
+      credential: { id: "agent-1", user_id: "support", user_name: "Support", name: "Triage", token_prefix: "hfa_example", all_projects: true, project_ids: [], is_active: true },
+      token: "hfa_example-secret",
+    }, 201);
+    if (path.endsWith("/agents")) return response([]);
+    throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<App />);
+
+  fireEvent.change(await screen.findByRole("textbox", { name: "Agent name" }), { target: { value: "Triage" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create agent token" }));
+
+  expect(await screen.findByText("hfa_example-secret")).toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledWith("/api/backoffice/agents", expect.objectContaining({ method: "POST" }));
 });
 
 function response(body: unknown, status = 200) {

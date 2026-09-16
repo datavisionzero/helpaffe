@@ -4,6 +4,25 @@ type Role = "administrator" | "support";
 type CurrentUser = { id: string; email: string; name: string; role: Role };
 type Project = { id: string; key: string; name: string };
 type ManagedUser = CurrentUser & { is_active: boolean; project_ids: string[] };
+type AgentCredential = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  name: string;
+  token_prefix: string;
+  all_projects: boolean;
+  project_ids: string[];
+  is_active: boolean;
+};
+type ProductKey = {
+  id: string;
+  project_id: string;
+  project_name: string;
+  name: string;
+  token_prefix: string;
+  is_active: boolean;
+};
+type CreatedCredential<T> = { credential: T; token: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/backoffice${path}`, {
@@ -29,6 +48,10 @@ export function App() {
   const [user, setUser] = useState<CurrentUser | null>();
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [agents, setAgents] = useState<AgentCredential[]>([]);
+  const [productKeys, setProductKeys] = useState<ProductKey[]>([]);
+  const [agentAllProjects, setAgentAllProjects] = useState(true);
+  const [revealedSecret, setRevealedSecret] = useState<{ label: string; token: string } | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -46,7 +69,14 @@ export function App() {
       setError("");
       const availableProjects = await call<Project[]>("/projects");
       setProjects(availableProjects);
-      setUsers(current.role === "administrator" ? await call<ManagedUser[]>("/users") : []);
+      setAgents(await call<AgentCredential[]>("/agents"));
+      if (current.role === "administrator") {
+        setUsers(await call<ManagedUser[]>("/users"));
+        setProductKeys(await call<ProductKey[]>("/product-keys"));
+      } else {
+        setUsers([]);
+        setProductKeys([]);
+      }
     } catch (reason) {
       setError(message(reason));
     }
@@ -71,6 +101,9 @@ export function App() {
     setUser(null);
     setProjects([]);
     setUsers([]);
+    setAgents([]);
+    setProductKeys([]);
+    setRevealedSecret(null);
   }
 
   async function createUser(event: FormEvent<HTMLFormElement>) {
@@ -99,6 +132,65 @@ export function App() {
         body: JSON.stringify(Object.fromEntries(data)),
       });
       form.reset();
+      await refresh();
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }
+
+  async function createAgent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      const created = await call<CreatedCredential<AgentCredential>>("/agents", {
+        method: "POST",
+        body: JSON.stringify({
+          name: data.get("name"),
+          userId: data.get("userId") || undefined,
+          allProjects: agentAllProjects,
+          projectIds: agentAllProjects ? [] : data.getAll("projectId"),
+        }),
+      });
+      setRevealedSecret({ label: `Token for ${created.credential.name}`, token: created.token });
+      form.reset();
+      setAgentAllProjects(true);
+      await refresh();
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }
+
+  async function revokeAgent(credential: AgentCredential) {
+    try {
+      await call<void>(`/agents/${credential.id}`, { method: "DELETE" });
+      await refresh();
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }
+
+  async function createProductKey(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      const projectId = String(data.get("projectId"));
+      const created = await call<CreatedCredential<ProductKey>>(`/projects/${projectId}/product-keys`, {
+        method: "POST",
+        body: JSON.stringify({ name: data.get("name") }),
+      });
+      setRevealedSecret({ label: `Product key for ${created.credential.project_name}`, token: created.token });
+      form.reset();
+      await refresh();
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }
+
+  async function revokeProductKey(credential: ProductKey) {
+    try {
+      await call<void>(`/product-keys/${credential.id}`, { method: "DELETE" });
       await refresh();
     } catch (reason) {
       setError(message(reason));
@@ -150,6 +242,11 @@ export function App() {
         <p>{user.role === "administrator" ? "Manage the people and projects that can use helpaffe." : "Projects assigned to you appear below."}</p>
       </section>
       {error && <p className="error banner" role="alert">{error}</p>}
+      {revealedSecret && <aside className="secret" role="status">
+        <div><p className="eyebrow">Shown once</p><h2>{revealedSecret.label}</h2><p>Copy this credential now. Only its prefix will be stored and shown again.</p></div>
+        <code>{revealedSecret.token}</code>
+        <button className="secondary" onClick={() => setRevealedSecret(null)}>I have copied it</button>
+      </aside>}
       <section className="section" aria-labelledby="projects-heading">
         <div className="section-heading"><div><p className="eyebrow">Access</p><h2 id="projects-heading">Projects</h2></div><span className="count">{projects.length}</span></div>
         {projects.length === 0 ? <p className="empty">No projects are available.</p> : <div className="project-grid">
@@ -188,6 +285,44 @@ export function App() {
             <label>Role<select name="role" defaultValue="support"><option value="support">Support</option><option value="administrator">Administrator</option></select></label>
           </div>
           <button type="submit">Add person</button>
+        </form>
+      </section>}
+      <section className="section" aria-labelledby="agents-heading">
+        <div className="section-heading"><div><p className="eyebrow">Delegation</p><h2 id="agents-heading">Agent credentials</h2></div><span className="count">{agents.length}</span></div>
+        <p className="section-copy">Each agent gets its own revocable token and can never exceed its owner's current project access.</p>
+        <div className="people-list">
+          {agents.map(credential => <article className={`person ${credential.is_active ? "" : "inactive"}`} key={credential.id}>
+            <div className="person-summary"><div><h3>{credential.name}</h3><p>{credential.user_name} · <code>{credential.token_prefix}…</code></p></div><span className="status">{credential.is_active ? "Active" : "Revoked"}</span></div>
+            <p className="scope">{credential.all_projects ? "All projects the owner may access, including future access" : `${credential.project_ids.length} selected project${credential.project_ids.length === 1 ? "" : "s"}`}</p>
+            {credential.is_active && <button className="secondary" onClick={() => void revokeAgent(credential)}>Revoke agent</button>}
+          </article>)}
+        </div>
+        <form className="create-user" onSubmit={createAgent}>
+          <h3>Create an agent credential</h3>
+          <div className="form-grid">
+            <label>Agent name<input name="name" required maxLength={200} placeholder="Triage agent" /></label>
+            {user.role === "administrator" && <label>Owner<select name="userId" defaultValue={user.id}>{users.filter(item => item.is_active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+          </div>
+          <label className="check-row"><input type="checkbox" checked={agentAllProjects} onChange={event => setAgentAllProjects(event.target.checked)} />All projects the owner may access</label>
+          {!agentAllProjects && <fieldset><legend>Selected projects</legend><div className="access-list">
+            {projects.map(project => <label key={project.id}><input type="checkbox" name="projectId" value={project.id} />{project.name}</label>)}
+          </div></fieldset>}
+          <button type="submit">Create agent token</button>
+        </form>
+      </section>
+      {user.role === "administrator" && <section className="section" aria-labelledby="product-keys-heading">
+        <div className="section-heading"><div><p className="eyebrow">Product integration</p><h2 id="product-keys-heading">Product API keys</h2></div><span className="count">{productKeys.length}</span></div>
+        <p className="section-copy">Product keys are project-bound and never authorize backoffice or agent operations.</p>
+        <div className="people-list">
+          {productKeys.map(credential => <article className={`person ${credential.is_active ? "" : "inactive"}`} key={credential.id}>
+            <div className="person-summary"><div><h3>{credential.name}</h3><p>{credential.project_name} · <code>{credential.token_prefix}…</code></p></div><span className="status">{credential.is_active ? "Active" : "Revoked"}</span></div>
+            {credential.is_active && <button className="secondary credential-action" onClick={() => void revokeProductKey(credential)}>Revoke key</button>}
+          </article>)}
+        </div>
+        <form className="inline-form product-key-form" onSubmit={createProductKey}>
+          <label>Key name<input name="name" required maxLength={200} placeholder="Production" /></label>
+          <label>Project<select name="projectId" required>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+          <button type="submit" disabled={projects.length === 0}>Create product key</button>
         </form>
       </section>}
     </div>

@@ -6,6 +6,7 @@ body { margin: 0; min-width: 20rem; min-height: 100vh; }
 button, input, select { font: inherit; }
 button { border: 0; border-radius: 0.35rem; padding: 0.7rem 1rem; color: #102019; background: #f2a65a; font-weight: 650; cursor: pointer; }
 button:hover { background: #ffba73; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
 button.secondary { border: 1px solid #40564d; color: #d9e5e0; background: transparent; }
 button.secondary:hover { border-color: #759487; background: #1b2924; }
 input, select { width: 100%; border: 1px solid #40564d; border-radius: 0.35rem; padding: 0.7rem 0.75rem; color: #f4f7f5; background: #14211d; }
@@ -28,6 +29,7 @@ label { display: grid; gap: 0.42rem; color: #b8c7c1; font-size: 0.86rem; }
 .intro { max-width: 46rem; margin-bottom: 4.5rem; }
 .intro h1 { margin: 0.45rem 0 0.8rem; color: #f4f7f5; font-size: clamp(2.8rem, 7vw, 5.4rem); line-height: 0.95; letter-spacing: -0.055em; }
 .intro > p:last-child, .empty, .muted { color: #9fb0a9; }
+.section-copy, .scope { color: #9fb0a9; }
 .section { margin-top: 2rem; border-top: 1px solid #32483f; padding: 2.5rem 0; }
 .section-heading, .person-summary, .person-controls { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .section-heading h2 { margin: 0.3rem 0 0; font-size: 2rem; }
@@ -52,11 +54,20 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
 .access-list { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; }
 .access-list label { display: flex; align-items: center; gap: 0.45rem; }
 .access-list input { width: auto; accent-color: #f2a65a; }
+.check-row { display: flex; align-items: center; gap: 0.55rem; margin: 1rem 0; }
+.check-row input { width: auto; accent-color: #f2a65a; }
 .create-user { margin-top: 1.5rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.3rem; background: rgb(20 33 29 / 64%); }
 .create-user h3 { margin-top: 0; }
 .create-user > button { margin-top: 1rem; }
 .error { color: #ffc0af; }
 .banner { border-left: 3px solid #f28a6a; padding: 0.8rem 1rem; background: #2b1c19; }
+.secret { display: grid; gap: 1rem; margin: 1.5rem 0 3rem; border: 1px solid #f2a65a; border-radius: 0.5rem; padding: 1.3rem; background: #2a251b; }
+.secret h2, .secret p { margin: 0.3rem 0; }
+.secret code { overflow-x: auto; border-radius: 0.3rem; padding: 0.9rem; color: #ffd4a8; background: #171b18; }
+.secret button { justify-self: start; }
+.scope { margin: 1rem 0; }
+.credential-action { margin-top: 1rem; }
+.product-key-form { grid-template-columns: 1fr; }
 @media (min-width: 48rem) { .inline-form { grid-template-columns: 0.7fr 1.5fr auto; } }
 @media (max-width: 40rem) {
   .workspace { width: min(100% - 2rem, 76rem); padding-top: 3.5rem; }
