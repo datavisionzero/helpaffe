@@ -12,6 +12,9 @@ var connectionString = builder.Configuration.GetConnectionString("Database")
     ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
 
 builder.Services.AddDbContextFactory<HelpaffeDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<NotificationDispatcher>();
+builder.Services.AddHostedService<NotificationWorker>();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
@@ -58,6 +61,7 @@ app.MapBackoffice();
 app.MapTickets();
 app.MapProduct();
 app.MapNotificationConfiguration();
+app.MapNotifications();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

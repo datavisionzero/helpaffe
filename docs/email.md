@@ -60,3 +60,27 @@ rejected when a template is saved. The fixed catalogue is:
 Variable values are HTML-encoded in HTML bodies. Text bodies remain plain text,
 and line breaks are removed from rendered subjects. SMTP submission is not a
 claim that the recipient's mail system delivered the message.
+
+## Durable delivery
+
+Ticket changes and their email jobs are committed in the same PostgreSQL
+transaction. The API response therefore does not depend on SMTP availability,
+and a restart cannot discard a committed notification. A worker attempts each
+new job immediately. Transient SMTP failures are retried after 1, 5, and 30
+minutes; a fourth failure changes the delivery to `failed`. Permanent
+configuration errors fail immediately.
+
+The three visible delivery states are `pending`, `submitted_to_smtp`, and
+`failed`. Ticket detail exposes the history and a safe failure message to
+support users. The Web ticket sidebar and
+`helpaffe ticket notification retry NUMBER NOTIFICATION_ID` can reset a failed
+delivery for an immediate attempt. Retrying is idempotent, does not add a
+conversation entry, and does not change the ticket version. Because SMTP has no
+atomic commit shared with PostgreSQL, a process failure after SMTP accepted a
+message but before the status commit can result in a duplicate attempt.
+
+Internal notes and changes limited to status or priority never create email
+jobs. A new ticket creates separate customer and project-support jobs; a
+customer reply goes to the current assignee or, when unassigned, to the
+project's support recipients; a public support reply goes to the customer; and
+assignment notifies the new assignee only when another actor made the change.

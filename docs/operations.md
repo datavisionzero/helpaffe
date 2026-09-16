@@ -84,6 +84,14 @@ case restore the original key or replace each project's SMTP password after
 configuring a new key. Do not commit the key to this repository or expose it to
 product backends and browsers.
 
+Ticket email is dispatched from a durable PostgreSQL outbox by a worker in the
+application process. New work is attempted immediately; transient SMTP errors
+are retried after 1, 5, and 30 minutes and then remain visible as `failed` until
+support retries them from the ticket. SMTP downtime does not roll back ticket
+writes. Restarting the application resumes pending jobs automatically. Monitor
+failed delivery state through ticket detail; failure text is intentionally
+sanitized and never contains SMTP credentials.
+
 ## Initial administrator and access management
 
 On the first application start against an empty database, helpaffe creates one

@@ -216,6 +216,7 @@ operations are:
 | `PATCH /api/backoffice/tickets/{number}` | Change status, priority, or eligible human assignee |
 | `POST /api/backoffice/tickets/{number}/replies` | Atomically add a public reply and its resulting status |
 | `POST /api/backoffice/tickets/{number}/notes` | Add an internal support note |
+| `POST /api/backoffice/tickets/{number}/notifications/{notificationId}/retry` | Retry one failed email delivery without changing the ticket version or conversation |
 | `GET /api/backoffice/projects/{projectId}/support-instructions` | Read project Markdown instructions within current project scope |
 | `PUT /api/backoffice/projects/{projectId}/support-instructions` | Replace instructions as an administrator or administrator agent |
 

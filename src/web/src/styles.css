@@ -158,10 +158,18 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
 .composer-actions label { min-width: 13rem; }
 .note-button { color: #1d1d12; background: #d6bd72; }
 .ticket-sidebar { display: grid; align-content: start; gap: 1rem; }
-.ticket-fields, .requester-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.1rem; background: #14211d; }
+.ticket-fields, .requester-card, .notification-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.1rem; background: #14211d; }
 .ticket-fields p, .requester-card p { margin: 0; }
 .requester-card { gap: 0.35rem; }
 .requester-card span { overflow-wrap: anywhere; color: #82968d; font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; }
+.notification-card > p { margin: 0; }
+.notification-card ol { display: grid; gap: 0.7rem; margin: 0; padding: 0; list-style: none; }
+.notification-card li { display: grid; gap: 0.4rem; border-top: 1px solid #2b3c35; padding-top: 0.7rem; }
+.notification-card li > div { display: grid; gap: 0.2rem; }
+.notification-card li span, .notification-card li p { overflow-wrap: anywhere; margin: 0; color: #91a39b; font-size: 0.76rem; }
+.notification-card .delivery-status { color: #a9cbbb; font-family: "IBM Plex Mono", monospace; text-transform: uppercase; }
+.notification-card li.failed .delivery-status, .notification-card li.failed p { color: #ffc0af; }
+.notification-card button { justify-self: start; }
 .instructions summary { color: #dbe7e2; cursor: pointer; font-weight: 600; }
 .instructions pre { margin: 0; white-space: pre-wrap; color: #aebdb7; font-family: "IBM Plex Sans", sans-serif; font-size: 0.84rem; line-height: 1.55; }
 @media (min-width: 48rem) { .inline-form { grid-template-columns: 0.7fr 1.5fr auto; } }

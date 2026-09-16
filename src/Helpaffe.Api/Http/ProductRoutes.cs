@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Helpaffe.Domain.Tickets;
 using Helpaffe.Infrastructure.Identity;
+using Helpaffe.Infrastructure.Notifications;
 using Helpaffe.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -59,6 +60,7 @@ public static class ProductRoutes
             now,
             contextJson: contextJson);
         database.Tickets.Add(ticket);
+        NotificationOutbox.AddNewTicket(database, ticket, actor.Project, now);
         var body = JsonSerializer.Serialize(ProductTicketDetail(ticket), JsonOptions(context));
         AddIdempotency(database, actor, key!, requestHash, 201, body, ticket.Version);
         var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: true);
@@ -134,8 +136,13 @@ public static class ProductRoutes
         if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
 
         var existingEntryCount = ticket.Conversation.Count;
-        ticket.AddCustomerMessage(Guid.NewGuid(), request.Message, DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        var assignee = ticket.AssigneeUserId is { } assigneeId
+            ? await database.Users.AsNoTracking().SingleOrDefaultAsync(value => value.Id == assigneeId, context.RequestAborted)
+            : null;
+        ticket.AddCustomerMessage(Guid.NewGuid(), request.Message, now);
         database.ConversationEntries.AddRange(ticket.Conversation.OrderBy(value => value.Sequence).Skip(existingEntryCount));
+        NotificationOutbox.AddCustomerReply(database, ticket, actor.Project, request.Message, assignee, now);
         var body = JsonSerializer.Serialize(ProductTicketDetail(ticket), JsonOptions(context));
         AddIdempotency(database, actor, key!, requestHash, 200, body, ticket.Version);
         var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: false);

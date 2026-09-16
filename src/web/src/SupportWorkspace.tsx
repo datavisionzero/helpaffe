@@ -27,10 +27,23 @@ type ConversationEntry = {
   created_at: string;
   actor: { user_name: string | null; agent_name: string | null } | null;
 };
+type NotificationDelivery = {
+  id: string;
+  type: string;
+  target_kind: string;
+  recipient_email: string | null;
+  status: "pending" | "submitted_to_smtp" | "failed";
+  attempt_count: number;
+  next_attempt_at: string | null;
+  submitted_at: string | null;
+  last_error: string | null;
+  created_at: string;
+};
 type TicketDetail = {
   summary: TicketSummary;
   requester: { external_user_id: string; name: string; email: string };
   support_instructions: string;
+  notifications: NotificationDelivery[];
   conversation: ConversationEntry[];
 };
 type TicketPage = { items: TicketSummary[]; next_cursor: string | null };
@@ -205,6 +218,22 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
     }), () => setNote(""));
   }
 
+  async function retryNotification(notificationId: string) {
+    if (!detail) return;
+    try {
+      setError("");
+      setNotice("");
+      await call(`/tickets/${encodeURIComponent(detail.summary.number)}/notifications/${encodeURIComponent(notificationId)}/retry`, {
+        method: "POST",
+        headers: { "Idempotency-Key": requestKey() },
+      });
+      setNotice("Email delivery has been queued for another attempt.");
+      await openTicket(detail.summary.number, true);
+    } catch (reason) {
+      setError(message(reason));
+    }
+  }
+
   function selectQueue(value: Queue) {
     setQueue(value);
     setDetail(null);
@@ -300,6 +329,17 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
               <button type="submit" disabled={!fieldsChanged}>Save ticket fields</button>
             </form>
             <div className="requester-card"><p className="eyebrow">Requester</p><strong>{detail.requester.name}</strong><a href={`mailto:${detail.requester.email}`}>{detail.requester.email}</a><span>{detail.requester.external_user_id}</span></div>
+            {detail.notifications.length > 0 && <section className="notification-card" aria-label="Email deliveries">
+              <p className="eyebrow">Email deliveries</p>
+              <ol>
+                {detail.notifications.map(notification => <li className={notification.status} key={notification.id}>
+                  <div><strong>{notificationLabel(notification.type)}</strong><span>{notification.recipient_email ?? targetLabel(notification.target_kind)}</span></div>
+                  <span className="delivery-status">{notification.status.replaceAll("_", " ")}</span>
+                  {notification.last_error && <p>{notification.last_error}</p>}
+                  {notification.status === "failed" && <button className="secondary compact" onClick={() => void retryNotification(notification.id)}>Retry delivery</button>}
+                </li>)}
+              </ol>
+            </section>}
             <details className="instructions" open>
               <summary>Support instructions</summary>
               <pre>{detail.support_instructions || "No project-specific instructions have been added."}</pre>
@@ -326,6 +366,20 @@ function kindLabel(kind: ConversationEntry["kind"]) {
     internal_note: "Internal note",
     system_event: "System event",
   } as const)[kind];
+}
+
+function notificationLabel(type: string) {
+  return ({
+    new_ticket_customer: "New ticket confirmation",
+    new_ticket_support: "New ticket alert",
+    customer_reply_support: "Customer reply alert",
+    public_reply_customer: "Public reply",
+    assignment_support: "Assignment alert",
+  } as Record<string, string>)[type] ?? type.replaceAll("_", " ");
+}
+
+function targetLabel(target: string) {
+  return ({ support_recipients: "Project support recipients", customer: "Customer", assignee: "Assignee" } as Record<string, string>)[target] ?? target;
 }
 
 function formatDate(value: string) {

@@ -62,6 +62,38 @@ func TestTicketNoteUsesAgentAuthConcurrencyAndStdin(t *testing.T) {
 	}
 }
 
+func TestTicketNotificationRetryUsesIdempotencyWithoutTicketVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/notifications/018f6b45-9e25-7def-a000-112233445566/retry"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if request.Method != http.MethodPost {
+			t.Errorf("method = %q", request.Method)
+		}
+		if request.Header.Get("Idempotency-Key") == "" {
+			t.Error("Idempotency-Key is missing")
+		}
+		if value := request.Header.Get("If-Match"); value != "" {
+			t.Errorf("If-Match = %q, want empty", value)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "status": "pending", "attempt_count": 0 }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	var output bytes.Buffer
+	err := ExecuteForTest(New("1.2.3"), &output, "--json", "ticket", "notification", "retry", "HLP-42", "018f6b45-9e25-7def-a000-112233445566")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), `{"attempt_count":0,"status":"pending"}`+"\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
 func TestVersionConflictHasStableExitCodeAndMachineError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/problem+json")

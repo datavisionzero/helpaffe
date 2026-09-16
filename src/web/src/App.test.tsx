@@ -25,6 +25,7 @@ const detail = {
   summary,
   requester: { external_user_id: "customer-42", name: "Avery Customer", email: "avery@example.test" },
   support_instructions: "Ask for the release number before replying.",
+  notifications: [],
   conversation: [
     { id: "entry-1", sequence: 1, kind: "customer_message", body: "Everything is blank.", is_public: true, created_at: now, actor: null },
     { id: "entry-2", sequence: 2, kind: "public_reply", body: "We are checking.", is_public: true, created_at: now, actor: { user_name: "Support", agent_name: null } },
@@ -32,6 +33,36 @@ const detail = {
     { id: "entry-4", sequence: 4, kind: "system_event", body: "Priority changed to Urgent.", is_public: false, created_at: now, actor: { user_name: "Support", agent_name: null } },
   ],
 };
+
+it("shows a failed email delivery and queues a retry without a ticket version", async () => {
+  const failed = {
+    id: "notification-1", type: "public_reply_customer", target_kind: "customer", recipient_email: "avery@example.test",
+    status: "failed", attempt_count: 4, next_attempt_at: null, submitted_at: null,
+    last_error: "SMTP connection failed.", created_at: now,
+  } as const;
+  const fetch = stubSupportApi(async (path, init) => {
+    if (path.endsWith("/tickets/HLP-42") && !init?.method) return response({ ...detail, notifications: [failed] });
+    if (path.endsWith("/tickets/HLP-42/notifications/notification-1/retry") && init?.method === "POST") {
+      return response({ ...failed, status: "pending", attempt_count: 0, last_error: null });
+    }
+    return null;
+  });
+  render(<SupportWorkspace user={user} projects={[project]} />);
+  fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
+  expect(await screen.findByText("SMTP connection failed.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Retry delivery" }));
+
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    "/api/backoffice/tickets/HLP-42/notifications/notification-1/retry",
+    expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+    }),
+  ));
+  const retryCall = fetch.mock.calls.find(([path]) => String(path).endsWith("/notifications/notification-1/retry"));
+  expect(retryCall?.[1]?.headers).not.toHaveProperty("If-Match");
+  expect(await screen.findByText("Email delivery has been queued for another attempt.")).toBeInTheDocument();
+});
 
 afterEach(() => {
   cleanup();

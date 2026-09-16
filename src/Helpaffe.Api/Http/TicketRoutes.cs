@@ -4,6 +4,7 @@ using System.Text.Json;
 using Helpaffe.Domain.Identity;
 using Helpaffe.Domain.Tickets;
 using Helpaffe.Infrastructure.Identity;
+using Helpaffe.Infrastructure.Notifications;
 using Helpaffe.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -254,8 +255,11 @@ public static class TicketRoutes
         if (replay is not null) return replay;
         if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
         var existingEntryCount = ticket.Conversation.Count;
-        ticket.AddPublicReply(Guid.NewGuid(), actor.User.Id, actor.Agent?.Id, request.Message, status.Value, DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        ticket.AddPublicReply(Guid.NewGuid(), actor.User.Id, actor.Agent?.Id, request.Message, status.Value, now);
         TrackNewEntries(database, ticket, existingEntryCount);
+        var replyProject = await database.Projects.AsNoTracking().SingleAsync(value => value.Id == ticket.ProjectId, context.RequestAborted);
+        NotificationOutbox.AddSupportReply(database, ticket, replyProject, request.Message, now);
         var detail = await TicketDetail(ticket, database, context.RequestAborted);
         var body = JsonSerializer.Serialize(detail, JsonOptions(context));
         AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
@@ -309,6 +313,7 @@ public static class TicketRoutes
             return Problem(400, "validation", "The assignee must be an active user with access to the ticket's project.");
 
         var actor = context.Actor()!;
+        var previousAssigneeId = ticket.AssigneeUserId;
         var changedAt = DateTimeOffset.UtcNow;
         var existingEntryCount = ticket.Conversation.Count;
         ticket.Update(
@@ -320,6 +325,12 @@ public static class TicketRoutes
             actor.Agent?.Id,
             changedAt);
         TrackNewEntries(database, ticket, existingEntryCount);
+        if (request.AssigneeId is { } newAssigneeId && newAssigneeId != previousAssigneeId && newAssigneeId != actor.User.Id)
+        {
+            var assignedUser = await database.Users.AsNoTracking().SingleAsync(value => value.Id == newAssigneeId, context.RequestAborted);
+            var assignmentProject = await database.Projects.AsNoTracking().SingleAsync(value => value.Id == ticket.ProjectId, context.RequestAborted);
+            NotificationOutbox.AddAssignment(database, ticket, assignmentProject, assignedUser, changedAt);
+        }
         var saveError = await SaveTicket(database, ticket.Id, context.RequestAborted);
         if (saveError is not null) return saveError;
         context.Response.Headers.ETag = ETag(ticket.Version);
@@ -537,12 +548,22 @@ public static class TicketRoutes
             .Select(value => value.ActingAgentCredentialId!.Value).Distinct().ToArray();
         var agents = await database.AgentCredentials.AsNoTracking().Where(value => agentIds.Contains(value.Id))
             .ToDictionaryAsync(value => value.Id, cancellationToken);
+        var storedNotifications = await database.NotificationDeliveries.AsNoTracking()
+            .Where(value => value.TicketId == ticket.Id)
+            .ToListAsync(cancellationToken);
+        var storedNotificationIds = storedNotifications.Select(value => value.Id).ToHashSet();
+        var notifications = storedNotifications.Concat(database.NotificationDeliveries.Local
+            .Where(value => value.TicketId == ticket.Id && !storedNotificationIds.Contains(value.Id)))
+            .OrderBy(value => value.CreatedAt)
+            .ThenBy(value => value.Id)
+            .ToArray();
         return new
         {
             summary = TicketSummary(ticket, project, ticket.AssigneeUserId is { } id ? users.GetValueOrDefault(id) : null),
             requester = new { external_user_id = ticket.RequesterExternalId, name = ticket.RequesterName, email = ticket.RequesterEmail },
             context = ParseContext(ticket.ContextJson),
             support_instructions = project.SupportInstructions,
+            notifications = notifications.Select(NotificationShape),
             conversation = ticket.Conversation.OrderBy(value => value.Sequence).Select(value => new
             {
                 value.Id,
@@ -561,6 +582,20 @@ public static class TicketRoutes
             }),
         };
     }
+
+    internal static object NotificationShape(NotificationDeliveryRecord value) => new
+    {
+        value.Id,
+        type = value.Type,
+        target_kind = value.TargetKind,
+        recipient_email = value.RecipientEmail,
+        status = value.Status,
+        attempt_count = value.AttemptCount,
+        next_attempt_at = value.NextAttemptAt,
+        submitted_at = value.SubmittedAt,
+        last_error = value.LastError,
+        created_at = value.CreatedAt,
+    };
 
     private static object TicketSummary(Ticket ticket, ProjectRecord project, UserRecord? assignee) => new
     {

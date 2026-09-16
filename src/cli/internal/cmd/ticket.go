@@ -19,8 +19,35 @@ func (app *application) newTicketCommand() *cobra.Command {
 		app.newTicketUpdateCommand(),
 		app.newTicketStatusCommand("resolve", "resolved"),
 		app.newTicketStatusCommand("reopen", "open"),
+		app.newTicketNotificationCommand(),
 	)
 	return ticket
+}
+
+func (app *application) newTicketNotificationCommand() *cobra.Command {
+	notification := &cobra.Command{Use: "notification", Short: "Work with ticket email deliveries"}
+	notification.AddCommand(&cobra.Command{
+		Use:   "retry NUMBER NOTIFICATION_ID",
+		Short: "Queue a failed email delivery for another attempt",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			client, err := app.apiClient()
+			if err != nil {
+				return err
+			}
+			key, err := requestKey()
+			if err != nil {
+				return err
+			}
+			path := "/api/backoffice/tickets/" + url.PathEscape(args[0]) + "/notifications/" + url.PathEscape(args[1]) + "/retry"
+			body, _, err := client.request(http.MethodPost, path, nil, 0, key)
+			if err != nil {
+				return err
+			}
+			return app.write(command, body)
+		},
+	})
+	return notification
 }
 
 func (app *application) newTicketListCommand() *cobra.Command {

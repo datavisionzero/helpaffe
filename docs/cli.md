@@ -46,6 +46,7 @@ only the selected source names and never prints a credential. Product keys
 | `ticket reply`, `ticket note` | Add a public reply or internal note |
 | `ticket update` | Change status, priority, or assignee |
 | `ticket resolve`, `ticket reopen` | Resolve or reopen a ticket |
+| `ticket notification retry NUMBER NOTIFICATION_ID` | Queue a failed email delivery for an immediate retry |
 
 Human-only administration of users, credentials, and project grants remains in
 the browser interface and is deliberately absent from the CLI.
@@ -60,8 +61,8 @@ the browser interface and is deliberately absent from the CLI.
   empty.
 - Human-readable output is stable enough to read, but scripts depend only on
   `--json` and exit codes.
-- Acquisition, public replies, and internal notes get a fresh UUID idempotency
-  key per invocation.
+- Acquisition, public replies, internal notes, and notification retries get a
+  fresh UUID idempotency key per invocation.
 - Ticket writes require `--version N`; the client sends `If-Match: "N"` and
   reports stale data without retrying over it.
 - Requests send `User-Agent: helpaffe/<version> (<os>/<arch>)` and validate the

@@ -142,6 +142,24 @@
         }
       }
     },
+    "/tickets/{number}/notifications/{notificationId}/retry": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TicketNumber" },
+        { "name": "notificationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "post": {
+        "operationId": "retryTicketNotification",
+        "summary": "Queue a failed ticket email delivery for another immediate attempt",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "responses": {
+          "200": { "description": "Notification reset to pending, or an idempotent replay", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationDelivery" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
     "/projects/{projectId}": {
       "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
       "patch": {
@@ -379,14 +397,32 @@
         },
         "additionalProperties": false
       },
+      "NotificationDelivery": {
+        "type": "object",
+        "required": ["id", "type", "target_kind", "recipient_email", "status", "attempt_count", "next_attempt_at", "submitted_at", "last_error", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "type": { "$ref": "#/components/schemas/EmailTemplateType" },
+          "target_kind": { "type": "string", "enum": ["customer", "assignee", "support_recipients"] },
+          "recipient_email": { "type": ["string", "null"], "format": "email", "description": "Null until a support-recipient job is expanded" },
+          "status": { "type": "string", "enum": ["pending", "submitted_to_smtp", "failed"] },
+          "attempt_count": { "type": "integer", "minimum": 0 },
+          "next_attempt_at": { "type": ["string", "null"], "format": "date-time" },
+          "submitted_at": { "type": ["string", "null"], "format": "date-time" },
+          "last_error": { "type": ["string", "null"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
       "TicketDetail": {
         "type": "object",
-        "required": ["summary", "requester", "context", "support_instructions", "conversation"],
+        "required": ["summary", "requester", "context", "support_instructions", "notifications", "conversation"],
         "properties": {
           "summary": { "$ref": "#/components/schemas/TicketSummary" },
           "requester": { "$ref": "#/components/schemas/Requester" },
           "context": { "type": ["object", "null"], "description": "Immutable JSON snapshot supplied when the product created the ticket", "additionalProperties": true },
           "support_instructions": { "type": "string" },
+          "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/NotificationDelivery" } },
           "conversation": { "type": "array", "items": { "$ref": "#/components/schemas/ConversationEntry" } }
         },
         "additionalProperties": false

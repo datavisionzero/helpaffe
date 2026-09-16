@@ -29,3 +29,21 @@ public sealed class ProjectEmailTemplateRecord
     public required string HtmlBody { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+public sealed class NotificationDeliveryRecord
+{
+    public Guid Id { get; init; }
+    public Guid ProjectId { get; init; }
+    public Guid TicketId { get; init; }
+    public required string Type { get; init; }
+    public required string TargetKind { get; init; }
+    public string? RecipientEmail { get; set; }
+    public string? RecipientName { get; set; }
+    public required string DataJson { get; init; }
+    public required string Status { get; set; }
+    public int AttemptCount { get; set; }
+    public DateTimeOffset? NextAttemptAt { get; set; }
+    public DateTimeOffset? SubmittedAt { get; set; }
+    public string? LastError { get; set; }
+    public DateTimeOffset CreatedAt { get; init; }
+}

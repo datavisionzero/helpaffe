@@ -21,6 +21,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
     public DbSet<ConversationEntry> ConversationEntries => Set<ConversationEntry>();
     public DbSet<ProjectEmailSettingsRecord> ProjectEmailSettings => Set<ProjectEmailSettingsRecord>();
     public DbSet<ProjectEmailTemplateRecord> ProjectEmailTemplates => Set<ProjectEmailTemplateRecord>();
+    public DbSet<NotificationDeliveryRecord> NotificationDeliveries => Set<NotificationDeliveryRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -155,5 +156,20 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         emailTemplate.Property(value => value.TextBody);
         emailTemplate.Property(value => value.HtmlBody);
         emailTemplate.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
+
+        var notification = modelBuilder.Entity<NotificationDeliveryRecord>();
+        notification.ToTable("notification_deliveries");
+        notification.HasKey(value => value.Id);
+        notification.Property(value => value.Type).HasMaxLength(64);
+        notification.Property(value => value.TargetKind).HasColumnName("target_kind").HasMaxLength(32);
+        notification.Property(value => value.RecipientEmail).HasColumnName("recipient_email").HasMaxLength(320);
+        notification.Property(value => value.RecipientName).HasColumnName("recipient_name").HasMaxLength(200);
+        notification.Property(value => value.DataJson).HasColumnName("data_json");
+        notification.Property(value => value.Status).HasMaxLength(32);
+        notification.Property(value => value.LastError).HasColumnName("last_error").HasMaxLength(1000);
+        notification.HasIndex(value => new { value.Status, value.NextAttemptAt, value.CreatedAt });
+        notification.HasIndex(value => new { value.TicketId, value.CreatedAt });
+        notification.HasOne<Ticket>().WithMany().HasForeignKey(value => value.TicketId).OnDelete(DeleteBehavior.Cascade);
+        notification.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
     }
 }
