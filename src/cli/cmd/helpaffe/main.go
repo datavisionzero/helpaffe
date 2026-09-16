@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/datavisionzero/helpaffe/src/cli/internal/cmd"
@@ -10,8 +9,9 @@ import (
 var version = "0.0.0-dev"
 
 func main() {
-	if err := cmd.New(version).Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+	root := cmd.New(version)
+	if err := root.Execute(); err != nil {
+		cmd.PrintError(root, os.Stderr, err)
+		os.Exit(cmd.ExitCode(err))
 	}
 }

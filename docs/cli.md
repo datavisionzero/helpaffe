@@ -13,35 +13,39 @@ the Homebrew formula index, Debian package index, and general web results on
 2026-09-16 found no established `helpaffe` command. The full name is therefore
 the least surprising and avoids an alias that another ecosystem already owns.
 
-Commands follow `helpaffe <object> <verb>`, with singular domain names. Global
-commands include `login`, `logout`, `status`, `me`, and `version`. Aliases are
-added only after observed use justifies supporting them indefinitely.
+Commands follow `helpaffe <object> <verb>`, with singular domain names. The
+first release is intentionally agent-only: its global commands are `status`,
+`me`, and `version`. Human login and human-administration commands are not part
+of the agent executable surface.
 
 ## Authentication and configuration
 
-A person runs:
+An agent harness supplies a named agent credential. Credential and instance
+resolution are deterministic:
 
-```sh
-helpaffe login --url https://support.example.com
-```
+1. Instance: `--url`, then `HELPAFFE_URL`.
+2. Token: `HELPAFFE_TOKEN`, then `--token-file PATH`.
 
-The CLI uses a device-code flow and stores the resulting user token in the
-operating system keychain. If no keychain is available, it writes no secret and
-names the explicit alternatives: `HELPAFFE_TOKEN` or
-`helpaffe login --token-file PATH`, where the file is created with mode `0600`
-and refused if it is readable by others.
+Token files must have mode `0600` on Unix-like systems. `helpaffe status` prints
+only the selected source names and never prints a credential. Product keys
+(`hfp_…`) are rejected locally; named agent tokens use the `hfa_…` prefix.
 
-An agent does not run `login`; its harness supplies its named credential in
-`HELPAFFE_TOKEN`. Credential and instance resolution are deterministic:
+## Commands
 
-1. Instance: `--url`, then `HELPAFFE_URL`, then the last device-login instance.
-2. Token: `HELPAFFE_TOKEN`, then an explicitly configured token file, then the
-   keychain.
+| Command | Purpose |
+| --- | --- |
+| `project list` | List projects in the agent's scope |
+| `project create`, `project update` | Manage projects as an administrator agent |
+| `project instructions get`, `project instructions set` | Read or replace support instructions |
+| `ticket list` | Filter and search visible tickets |
+| `ticket get` / `ticket context` | Read the full ticket conversation and instructions |
+| `ticket next` | Atomically acquire the next eligible ticket |
+| `ticket reply`, `ticket note` | Add a public reply or internal note |
+| `ticket update` | Change status, priority, or assignee |
+| `ticket resolve`, `ticket reopen` | Resolve or reopen a ticket |
 
-`helpaffe status` prints the selected sources without printing a secret. The
-configuration file contains the instance and optional token-file path only. It
-defaults to `$XDG_CONFIG_HOME/helpaffe/config.json` or
-`~/.config/helpaffe/config.json` and can be overridden by `HELPAFFE_CONFIG`.
+Human-only administration of users, credentials, and project grants remains in
+the browser interface and is deliberately absent from the CLI.
 
 ## Agent-facing behavior
 
@@ -53,8 +57,8 @@ defaults to `$XDG_CONFIG_HOME/helpaffe/config.json` or
   empty.
 - Human-readable output is stable enough to read, but scripts depend only on
   `--json` and exit codes.
-- Every write gets a UUID idempotency key per invocation. Retries after a lost
-  connection reuse the same key.
+- Acquisition, public replies, and internal notes get a fresh UUID idempotency
+  key per invocation.
 - Ticket writes require `--version N`; the client sends `If-Match: "N"` and
   reports stale data without retrying over it.
 - Requests send `User-Agent: helpaffe/<version> (<os>/<arch>)` and validate the
@@ -66,7 +70,7 @@ defaults to `$XDG_CONFIG_HOME/helpaffe/config.json` or
 
 Short, single-line values use ordinary flags. Multiline or potentially long
 content always has an explicit file flag, such as `--message-file`,
-`--note-file`, `--instructions-file`, or `--template-file`. A path reads UTF-8
+`--note-file`, or `--instructions-file`. A path reads UTF-8
 from that file and `-` reads stdin. Stdin is never consumed implicitly. Supplying
 both an inline value and its file variant is a usage error. Input is preserved
 without hard wrapping and normalized to LF line endings.

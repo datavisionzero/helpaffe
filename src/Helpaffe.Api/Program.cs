@@ -22,6 +22,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("postgresql", tags: ["ready"]);
 
 var app = builder.Build();
+var serverVersion = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
@@ -32,6 +33,11 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 await BootstrapAdministrator.EnsureAsync(app.Services, app.Configuration);
 
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["Helpaffe-Version"] = serverVersion;
+    await next(context);
+});
 app.Use(BackofficeSecurity.AuthenticateAsync);
 app.Use(ProductSecurity.AuthenticateAsync);
 
@@ -46,7 +52,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 
 app.MapGet("/api/backoffice/version", () => Results.Ok(new
 {
-    version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
+    version = serverVersion,
 }));
 app.MapBackoffice();
 app.MapTickets();
