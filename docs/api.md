@@ -215,6 +215,8 @@ operations are:
 | `POST /api/backoffice/tickets/next` | Atomically assign and start the urgent-first, longest-waiting eligible Open ticket |
 | `PATCH /api/backoffice/tickets/{number}` | Change status, priority, or eligible human assignee |
 | `PUT /api/backoffice/tickets/{number}/snooze` | Set a future snooze instant or clear it with `null` |
+| `POST /api/backoffice/tickets/{number}/development-references` | Append a typed Planaffe, GitHub, or GitLab HTTPS task reference |
+| `DELETE /api/backoffice/tickets/{number}/development-references/{referenceId}` | Remove one task reference |
 | `POST /api/backoffice/tickets/{number}/replies` | Atomically add a public reply and its resulting status |
 | `POST /api/backoffice/tickets/{number}/notes` | Add an internal support note |
 | `POST /api/backoffice/tickets/{number}/notifications/{notificationId}/retry` | Retry one failed email delivery without changing the ticket version or conversation |
@@ -248,11 +250,18 @@ as soon as the instant passes, without a background job. A new customer reply
 clears an active snooze immediately. Setting and clearing the value is recorded
 as an internal system event.
 
+Development references are ordered by insertion and contain only a fixed type,
+an HTTPS URL, and a short display label. They are support-only ticket context:
+helpaffe neither contacts nor synchronizes the referenced system. Adding and
+removing a reference creates an internal system event, and duplicate URLs on a
+ticket are rejected.
+
 Ticket reads return `ETag: "N"` and the same positive `version` in the body.
 Ticket mutations require that value in `If-Match`; omission returns
 `version-required`, while a concurrent change returns `stale` with
 `current_version`. Replies, notes, and next-ticket acquisition also require an
-`Idempotency-Key`; snooze changes require it as well. Repeating the same request for 24 hours returns its original
+`Idempotency-Key`; snooze and development-reference changes require it as well.
+Repeating the same request for 24 hours returns its original
 body and ETag without adding another conversation entry; reuse for a different
 request returns `idempotency-mismatch`.
 

@@ -21,11 +21,76 @@ func (app *application) newTicketCommand() *cobra.Command {
 		app.newTicketUpdateCommand(),
 		app.newTicketSnoozeCommand(),
 		app.newTicketUnsnoozeCommand(),
+		app.newTicketReferenceCommand(),
 		app.newTicketStatusCommand("resolve", "resolved"),
 		app.newTicketStatusCommand("reopen", "open"),
 		app.newTicketNotificationCommand(),
 	)
 	return ticket
+}
+
+func (app *application) newTicketReferenceCommand() *cobra.Command {
+	reference := &cobra.Command{Use: "reference", Short: "Manage external development task references"}
+	reference.AddCommand(app.newTicketReferenceAddCommand(), app.newTicketReferenceRemoveCommand())
+	return reference
+}
+
+func (app *application) newTicketReferenceAddCommand() *cobra.Command {
+	var referenceType, referenceURL, label string
+	var version int
+	command := &cobra.Command{
+		Use:   "add NUMBER",
+		Short: "Add a Planaffe, GitHub, or GitLab task reference",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if version < 1 || referenceType == "" || referenceURL == "" || label == "" {
+				return &exitError{code: 2, message: "--version, --type, --url, and --label are required"}
+			}
+			return app.mutateTicketReference(command, http.MethodPost,
+				"/api/backoffice/tickets/"+url.PathEscape(args[0])+"/development-references",
+				version, map[string]any{"type": referenceType, "url": referenceURL, "label": label})
+		},
+	}
+	command.Flags().IntVar(&version, "version", 0, "last-read positive ticket version")
+	command.Flags().StringVar(&referenceType, "type", "", "planaffe, github, or gitlab")
+	command.Flags().StringVar(&referenceURL, "url", "", "absolute HTTPS task URL")
+	command.Flags().StringVar(&label, "label", "", "short readable reference")
+	return command
+}
+
+func (app *application) newTicketReferenceRemoveCommand() *cobra.Command {
+	var version int
+	command := &cobra.Command{
+		Use:   "remove NUMBER REFERENCE_ID",
+		Short: "Remove a development task reference",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			if version < 1 {
+				return &exitError{code: 2, message: "--version is required"}
+			}
+			return app.mutateTicketReference(command, http.MethodDelete,
+				"/api/backoffice/tickets/"+url.PathEscape(args[0])+"/development-references/"+url.PathEscape(args[1]),
+				version, nil)
+		},
+	}
+	command.Flags().IntVar(&version, "version", 0, "last-read positive ticket version")
+	return command
+}
+
+func (app *application) mutateTicketReference(command *cobra.Command, method, path string, version int, payload any) error {
+	client, err := app.apiClient()
+	if err != nil {
+		return err
+	}
+	key, err := requestKey()
+	if err != nil {
+		return err
+	}
+	body, _, err := client.request(method, path, payload, version, key)
+	if err != nil {
+		return err
+	}
+	return app.write(command, body)
 }
 
 func (app *application) newTicketSnoozeCommand() *cobra.Command {

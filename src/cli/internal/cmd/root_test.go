@@ -150,6 +150,72 @@ func TestTicketUnsnoozeSendsNull(t *testing.T) {
 	}
 }
 
+func TestTicketReferenceAddUsesVersionAndIdempotency(t *testing.T) {
+	var received map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/development-references"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if request.Method != http.MethodPost {
+			t.Errorf("method = %q", request.Method)
+		}
+		if got, want := request.Header.Get("If-Match"), `"7"`; got != want {
+			t.Errorf("If-Match = %q, want %q", got, want)
+		}
+		if request.Header.Get("Idempotency-Key") == "" {
+			t.Error("Idempotency-Key is missing")
+		}
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "development_references": [{ "label": "GH-42" }] }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "ticket", "reference", "add", "HLP-42", "--version", "7",
+		"--type", "github", "--url", "https://github.com/example/app/issues/42", "--label", "GH-42"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := received["type"], "github"; got != want {
+		t.Fatalf("type = %q, want %q", got, want)
+	}
+	if got, want := received["label"], "GH-42"; got != want {
+		t.Fatalf("label = %q, want %q", got, want)
+	}
+}
+
+func TestTicketReferenceRemoveUsesDeleteWithoutBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/development-references/018f6b45-9e25-7def-a000-112233445566"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if request.Method != http.MethodDelete {
+			t.Errorf("method = %q", request.Method)
+		}
+		if request.ContentLength > 0 {
+			t.Errorf("ContentLength = %d, want no body", request.ContentLength)
+		}
+		if request.Header.Get("Idempotency-Key") == "" {
+			t.Error("Idempotency-Key is missing")
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "development_references": [] }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "ticket", "reference", "remove", "HLP-42",
+		"018f6b45-9e25-7def-a000-112233445566", "--version", "8"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTicketRequesterTicketsForwardsSameProjectHistoryFilters(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/requester-tickets"; got != want {

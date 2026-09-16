@@ -24,6 +24,8 @@ public static class TicketRoutes
         group.MapGet("/tickets/{number}/requester-tickets", ListRequesterTickets);
         group.MapPatch("/tickets/{number}", UpdateTicket);
         group.MapPut("/tickets/{number}/snooze", SetSnooze);
+        group.MapPost("/tickets/{number}/development-references", AddDevelopmentReference);
+        group.MapDelete("/tickets/{number}/development-references/{referenceId:guid}", RemoveDevelopmentReference);
         group.MapPost("/tickets/{number}/replies", AddReply);
         group.MapPost("/tickets/{number}/notes", AddNote);
         group.MapGet("/projects/{projectId:guid}/support-instructions", GetSupportInstructions);
@@ -372,6 +374,73 @@ public static class TicketRoutes
         return StoredJson(context, 200, body, ETag(ticket.Version));
     }
 
+    private static async Task<IResult> AddDevelopmentReference(
+        string number,
+        AddDevelopmentReferenceRequest request,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        var actor = context.Actor()!;
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var ticket = await LoadVisibleTicket(number, context, database);
+        if (ticket is null) return NotFound();
+        if (!IdempotencyKey(context, out var key, out var keyError)) return keyError!;
+        var requestHash = RequestHash(context, JsonSerializer.Serialize(request, JsonOptions(context)));
+        var replay = await ExistingIdempotency(database, actor, key!, requestHash, context);
+        if (replay is not null) return replay;
+        if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
+        if (!TryDevelopmentReferenceType(request.Type, out var type))
+            return Problem(400, "validation", "Reference type must be planaffe, github, or gitlab.");
+        if (string.IsNullOrWhiteSpace(request.Label) || request.Label.Trim().Length > 200)
+            return Problem(400, "validation", "Reference label is required and may contain at most 200 characters.");
+        if (string.IsNullOrWhiteSpace(request.Url) || request.Url.Trim().Length > 2048 ||
+            !Uri.TryCreate(request.Url.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || string.IsNullOrWhiteSpace(uri.Host))
+            return Problem(400, "validation", "Reference URL must be an absolute HTTPS URL with at most 2048 characters.");
+        if (ticket.DevelopmentReferences.Any(value => string.Equals(value.Url, request.Url.Trim(), StringComparison.OrdinalIgnoreCase)))
+            return Problem(409, "reference-exists", "The development reference already exists on this ticket.");
+
+        var existingEntryCount = ticket.Conversation.Count;
+        var reference = ticket.AddDevelopmentReference(
+            Guid.NewGuid(), type, request.Url, request.Label, actor.User.Id, actor.Agent?.Id, DateTimeOffset.UtcNow);
+        database.DevelopmentReferences.Add(reference);
+        TrackNewEntries(database, ticket, existingEntryCount);
+        var detail = await TicketDetail(ticket, database, context.RequestAborted);
+        var body = JsonSerializer.Serialize(detail, JsonOptions(context));
+        AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
+        var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
+        if (saveError is not null) return saveError;
+        return StoredJson(context, 200, body, ETag(ticket.Version));
+    }
+
+    private static async Task<IResult> RemoveDevelopmentReference(
+        string number,
+        Guid referenceId,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        var actor = context.Actor()!;
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var ticket = await LoadVisibleTicket(number, context, database);
+        if (ticket is null) return NotFound();
+        if (!IdempotencyKey(context, out var key, out var keyError)) return keyError!;
+        var requestHash = RequestHash(context, string.Empty);
+        var replay = await ExistingIdempotency(database, actor, key!, requestHash, context);
+        if (replay is not null) return replay;
+        if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
+
+        var existingEntryCount = ticket.Conversation.Count;
+        var removed = ticket.RemoveDevelopmentReference(referenceId, actor.User.Id, actor.Agent?.Id, DateTimeOffset.UtcNow);
+        if (removed is null) return Problem(404, "not-found", "The development reference was not found on this ticket.");
+        database.DevelopmentReferences.Remove(removed);
+        TrackNewEntries(database, ticket, existingEntryCount);
+        var detail = await TicketDetail(ticket, database, context.RequestAborted);
+        var body = JsonSerializer.Serialize(detail, JsonOptions(context));
+        AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
+        var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
+        if (saveError is not null) return saveError;
+        return StoredJson(context, 200, body, ETag(ticket.Version));
+    }
+
     private static async Task<IResult> GetSupportInstructions(
         Guid projectId,
         HttpContext context,
@@ -405,6 +474,7 @@ public static class TicketRoutes
             .ToArrayAsync(context.RequestAborted);
         return await database.Tickets.Where(value => visibleProjectIds.Contains(value.ProjectId))
             .Include(value => value.Conversation)
+            .Include(value => value.DevelopmentReferences)
             .AsSplitQuery()
             .SingleOrDefaultAsync(value => value.Number == number.Trim().ToUpperInvariant(), context.RequestAborted);
     }
@@ -598,6 +668,15 @@ public static class TicketRoutes
             requester = new { external_user_id = ticket.RequesterExternalId, name = ticket.RequesterName, email = ticket.RequesterEmail },
             context = ParseContext(ticket.ContextJson),
             support_instructions = project.SupportInstructions,
+            development_references = ticket.DevelopmentReferences.OrderBy(value => value.Position).Select(value => new
+            {
+                value.Id,
+                type = DevelopmentReferenceTypeName(value.Type),
+                value.Url,
+                value.Label,
+                value.Position,
+                created_at = value.CreatedAt,
+            }),
             notifications = notifications.Select(NotificationShape),
             conversation = ticket.Conversation.OrderBy(value => value.Sequence).Select(value => new
             {
@@ -714,6 +793,26 @@ public static class TicketRoutes
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
+    private static bool TryDevelopmentReferenceType(string? value, out DevelopmentReferenceType type)
+    {
+        type = value?.Trim().ToLowerInvariant() switch
+        {
+            "planaffe" => DevelopmentReferenceType.Planaffe,
+            "github" => DevelopmentReferenceType.GitHub,
+            "gitlab" => DevelopmentReferenceType.GitLab,
+            _ => (DevelopmentReferenceType)(-1),
+        };
+        return type != (DevelopmentReferenceType)(-1);
+    }
+
+    private static string DevelopmentReferenceTypeName(DevelopmentReferenceType type) => type switch
+    {
+        DevelopmentReferenceType.Planaffe => "planaffe",
+        DevelopmentReferenceType.GitHub => "github",
+        DevelopmentReferenceType.GitLab => "gitlab",
+        _ => throw new ArgumentOutOfRangeException(nameof(type)),
+    };
+
     private static string CursorSignature(
         BackofficeActor actor,
         IEnumerable<Guid> projectIds,
@@ -789,5 +888,6 @@ public static class TicketRoutes
     private sealed record NextTicketRequest(Guid? ProjectId);
     private sealed record UpdateTicketRequest(string? Status, string? Priority, Guid? AssigneeId, bool ClearAssignee = false);
     private sealed record SetSnoozeRequest(DateTimeOffset? SnoozedUntil);
+    private sealed record AddDevelopmentReferenceRequest(string Type, string Url, string Label);
     private sealed record UpdateSupportInstructionsRequest(string Markdown);
 }

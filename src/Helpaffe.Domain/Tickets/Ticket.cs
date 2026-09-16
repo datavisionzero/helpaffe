@@ -6,6 +6,7 @@ namespace Helpaffe.Domain.Tickets;
 public sealed class Ticket
 {
     private readonly List<ConversationEntry> _conversation = [];
+    private readonly List<DevelopmentReference> _developmentReferences = [];
 
     private Ticket()
     {
@@ -74,6 +75,7 @@ public sealed class Ticket
     public DateTimeOffset WaitingSince { get; private set; }
     public DateTimeOffset? SnoozedUntil { get; private set; }
     public IReadOnlyCollection<ConversationEntry> Conversation => _conversation.AsReadOnly();
+    public IReadOnlyCollection<DevelopmentReference> DevelopmentReferences => _developmentReferences.AsReadOnly();
 
     public void AddCustomerMessage(Guid entryId, string body, DateTimeOffset createdAt)
     {
@@ -178,6 +180,51 @@ public sealed class Ticket
             $"Snooze changed from {previous} to {next}.", changedAt, actorUserId, actingAgentCredentialId);
         UpdatedAt = changedAt;
         Version++;
+    }
+
+    public DevelopmentReference AddDevelopmentReference(
+        Guid referenceId,
+        DevelopmentReferenceType type,
+        string url,
+        string label,
+        Guid actorUserId,
+        Guid? actingAgentCredentialId,
+        DateTimeOffset changedAt)
+    {
+        if (_developmentReferences.Any(value => string.Equals(value.Url, url.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("The development reference already exists on this ticket.");
+        var reference = new DevelopmentReference(
+            referenceId,
+            Id,
+            _developmentReferences.Select(value => value.Position).DefaultIfEmpty().Max() + 1,
+            type,
+            url,
+            label,
+            changedAt);
+        _developmentReferences.Add(reference);
+        AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent,
+            $"Development reference added: {type} {reference.Label} ({reference.Url}).",
+            changedAt, actorUserId, actingAgentCredentialId);
+        UpdatedAt = changedAt;
+        Version++;
+        return reference;
+    }
+
+    public DevelopmentReference? RemoveDevelopmentReference(
+        Guid referenceId,
+        Guid actorUserId,
+        Guid? actingAgentCredentialId,
+        DateTimeOffset changedAt)
+    {
+        var reference = _developmentReferences.SingleOrDefault(value => value.Id == referenceId);
+        if (reference is null) return null;
+        _developmentReferences.Remove(reference);
+        AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent,
+            $"Development reference removed: {reference.Type} {reference.Label} ({reference.Url}).",
+            changedAt, actorUserId, actingAgentCredentialId);
+        UpdatedAt = changedAt;
+        Version++;
+        return reference;
     }
 
     public void Update(

@@ -151,6 +151,36 @@ public sealed class SupportApiTests : IAsyncLifetime
         Assert.Single((await Read(await supportAgent.GetAsync("/api/backoffice/tickets?mine=true", TestContext.Current.CancellationToken)))
             .GetProperty("items").EnumerateArray());
 
+        var invalidReference = await SendTicketJson(supportAgent, HttpMethod.Post,
+            "/api/backoffice/tickets/HLP-201/development-references",
+            new { type = "github", url = "http://github.com/example/app/issues/42", label = "GH-42" }, version, "invalid-reference-201");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidReference.StatusCode);
+        var addedReference = await SendTicketJson(supportAgent, HttpMethod.Post,
+            "/api/backoffice/tickets/HLP-201/development-references",
+            new { type = "github", url = "https://github.com/example/app/issues/42", label = "GH-42" }, version, "add-reference-201");
+        Assert.Equal(HttpStatusCode.OK, addedReference.StatusCode);
+        var addedReferenceDocument = await Read(addedReference);
+        var reference = Assert.Single(addedReferenceDocument.GetProperty("development_references").EnumerateArray());
+        var referenceId = reference.GetProperty("id").GetGuid();
+        Assert.Equal(1, reference.GetProperty("position").GetInt32());
+        Assert.Equal("github", reference.GetProperty("type").GetString());
+        var versionBeforeReference = version;
+        version = addedReferenceDocument.GetProperty("summary").GetProperty("version").GetInt32();
+        var replayedReference = await SendTicketJson(supportAgent, HttpMethod.Post,
+            "/api/backoffice/tickets/HLP-201/development-references",
+            new { type = "github", url = "https://github.com/example/app/issues/42", label = "GH-42" }, versionBeforeReference, "add-reference-201");
+        Assert.Single((await Read(replayedReference)).GetProperty("development_references").EnumerateArray());
+        var duplicateReference = await SendTicketJson(supportAgent, HttpMethod.Post,
+            "/api/backoffice/tickets/HLP-201/development-references",
+            new { type = "gitlab", url = "https://github.com/example/app/issues/42", label = "duplicate" }, version, "duplicate-reference-201");
+        Assert.Equal(HttpStatusCode.Conflict, duplicateReference.StatusCode);
+        var removedReference = await SendTicketJson(supportAgent, HttpMethod.Delete,
+            $"/api/backoffice/tickets/HLP-201/development-references/{referenceId}", new { }, version, "remove-reference-201");
+        Assert.Equal(HttpStatusCode.OK, removedReference.StatusCode);
+        var removedReferenceDocument = await Read(removedReference);
+        Assert.Empty(removedReferenceDocument.GetProperty("development_references").EnumerateArray());
+        version = removedReferenceDocument.GetProperty("summary").GetProperty("version").GetInt32();
+
         var note = await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/HLP-201/notes", new { message = "Reproduced in production." }, version, "note-201");
         Assert.Equal(HttpStatusCode.OK, note.StatusCode);
         version = (await Read(note)).GetProperty("summary").GetProperty("version").GetInt32();
@@ -181,7 +211,7 @@ public sealed class SupportApiTests : IAsyncLifetime
         await using var scope = factory.Services.CreateAsyncScope();
         await using var database = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<HelpaffeDbContext>>()
             .CreateDbContextAsync(TestContext.Current.CancellationToken);
-        var stored = await database.Tickets.Include(value => value.Conversation)
+        var stored = await database.Tickets.Include(value => value.Conversation).Include(value => value.DevelopmentReferences)
             .SingleAsync(value => value.Number == "HLP-201", TestContext.Current.CancellationToken);
         Assert.Equal(TicketStatus.WaitingForCustomer, stored.Status);
         Assert.Equal(TicketPriority.Urgent, stored.Priority);
@@ -190,6 +220,9 @@ public sealed class SupportApiTests : IAsyncLifetime
         Assert.Contains(stored.Conversation, value => value.Kind is ConversationEntryKind.PublicReply && value.ActingAgentCredentialId is not null);
         Assert.Single(stored.Conversation, value => value.Kind is ConversationEntryKind.PublicReply);
         Assert.Equal(2, stored.Conversation.Count(value => value.Kind is ConversationEntryKind.SystemEvent && value.Body.StartsWith("Snooze changed", StringComparison.Ordinal)));
+        Assert.Single(stored.Conversation, value => value.Body.StartsWith("Development reference added", StringComparison.Ordinal));
+        Assert.Single(stored.Conversation, value => value.Body.StartsWith("Development reference removed", StringComparison.Ordinal));
+        Assert.Empty(stored.DevelopmentReferences);
         Assert.DoesNotContain(stored.Conversation, value => value.Body == "Must not persist");
         Assert.Equal(repliedVersion, stored.Version);
     }

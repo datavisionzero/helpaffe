@@ -47,6 +47,7 @@ only the selected source names and never prints a credential. Product keys
 | `ticket reply`, `ticket note` | Add a public reply or internal note |
 | `ticket update` | Change status, priority, or assignee |
 | `ticket snooze NUMBER --until DATE_TIME`, `ticket unsnooze NUMBER` | Set or clear the UTC instant until which a ticket stays out of normal work queues |
+| `ticket reference add`, `ticket reference remove` | Attach or remove typed HTTPS development-task references; `ticket get` displays them |
 | `ticket resolve`, `ticket reopen` | Resolve or reopen a ticket |
 | `ticket notification retry NUMBER NOTIFICATION_ID` | Queue a failed email delivery for an immediate retry |
 
@@ -63,7 +64,7 @@ the browser interface and is deliberately absent from the CLI.
   empty.
 - Human-readable output is stable enough to read, but scripts depend only on
   `--json` and exit codes.
-- Acquisition, public replies, internal notes, snooze changes, and notification retries get a
+- Acquisition, public replies, internal notes, snooze and development-reference changes, and notification retries get a
   fresh UUID idempotency key per invocation.
 - Ticket writes require `--version N`; the client sends `If-Match: "N"` and
   reports stale data without retrying over it.

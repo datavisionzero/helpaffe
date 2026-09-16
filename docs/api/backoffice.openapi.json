@@ -129,6 +129,43 @@
         }
       }
     },
+    "/tickets/{number}/development-references": {
+      "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
+      "post": {
+        "operationId": "addTicketDevelopmentReference",
+        "summary": "Add an ordered external development task reference without synchronizing it",
+        "parameters": [{ "$ref": "#/components/parameters/IfMatch" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object",
+          "required": ["type", "url", "label"],
+          "properties": {
+            "type": { "type": "string", "enum": ["planaffe", "github", "gitlab"] },
+            "url": { "type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048 },
+            "label": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          "additionalProperties": false
+        } } } },
+        "responses": {
+          "200": { "description": "Updated or idempotently replayed ticket context", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" }, "412": { "$ref": "#/components/responses/Stale" }, "428": { "$ref": "#/components/responses/VersionRequired" }
+        }
+      }
+    },
+    "/tickets/{number}/development-references/{referenceId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TicketNumber" },
+        { "name": "referenceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "delete": {
+        "operationId": "removeTicketDevelopmentReference",
+        "summary": "Remove one development task reference",
+        "parameters": [{ "$ref": "#/components/parameters/IfMatch" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "responses": {
+          "200": { "description": "Updated or idempotently replayed ticket context", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" }, "412": { "$ref": "#/components/responses/Stale" }, "428": { "$ref": "#/components/responses/VersionRequired" }
+        }
+      }
+    },
     "/tickets/{number}/replies": {
       "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
       "post": {
@@ -438,14 +475,28 @@
         },
         "additionalProperties": false
       },
+      "DevelopmentReference": {
+        "type": "object",
+        "required": ["id", "type", "url", "label", "position", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "type": { "type": "string", "enum": ["planaffe", "github", "gitlab"] },
+          "url": { "type": "string", "format": "uri" },
+          "label": { "type": "string" },
+          "position": { "type": "integer", "minimum": 1 },
+          "created_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
       "TicketDetail": {
         "type": "object",
-        "required": ["summary", "requester", "context", "support_instructions", "notifications", "conversation"],
+        "required": ["summary", "requester", "context", "support_instructions", "development_references", "notifications", "conversation"],
         "properties": {
           "summary": { "$ref": "#/components/schemas/TicketSummary" },
           "requester": { "$ref": "#/components/schemas/Requester" },
           "context": { "type": ["object", "null"], "description": "Immutable JSON snapshot supplied when the product created the ticket", "additionalProperties": true },
           "support_instructions": { "type": "string" },
+          "development_references": { "type": "array", "items": { "$ref": "#/components/schemas/DevelopmentReference" } },
           "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/NotificationDelivery" } },
           "conversation": { "type": "array", "items": { "$ref": "#/components/schemas/ConversationEntry" } }
         },

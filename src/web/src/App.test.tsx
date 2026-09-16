@@ -27,6 +27,7 @@ const detail = {
   requester: { external_user_id: "customer-42", name: "Avery Customer", email: "avery@example.test" },
   context: { release: "2.4.1", page: "/settings" },
   support_instructions: "Ask for the release number before replying.",
+  development_references: [],
   notifications: [],
   conversation: [
     { id: "entry-1", sequence: 1, kind: "customer_message", body: "Everything is blank.", is_public: true, created_at: now, actor: null },
@@ -161,6 +162,41 @@ it("snoozes and clears a ticket with version and idempotency protection", async 
   await waitFor(() => expect(fetch.mock.calls.filter(([path]) => String(path).endsWith("/snooze"))).toHaveLength(2));
   const clearCall = fetch.mock.calls.filter(([path]) => String(path).endsWith("/snooze"))[1];
   expect(clearCall[1]).toEqual(expect.objectContaining({ body: JSON.stringify({ snoozed_until: null }) }));
+});
+
+it("adds and removes development references with the current ticket version", async () => {
+  const reference = { id: "reference-1", type: "github", url: "https://github.com/example/app/issues/42", label: "GH-42", position: 1, created_at: now } as const;
+  const fetch = stubSupportApi(async (path, init) => {
+    if (path.endsWith("/tickets/HLP-42/development-references") && init?.method === "POST") {
+      return response({ ...detail, summary: { ...summary, version: 5 }, development_references: [reference] });
+    }
+    if (path.endsWith("/tickets/HLP-42/development-references/reference-1") && init?.method === "DELETE") {
+      return response({ ...detail, summary: { ...summary, version: 6 }, development_references: [] });
+    }
+    return null;
+  });
+  render(<SupportWorkspace user={user} projects={[project]} />);
+  fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "Reference" }), { target: { value: "GH-42" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "HTTPS URL" }), { target: { value: reference.url } });
+  fireEvent.click(screen.getByRole("button", { name: "Add reference" }));
+
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    "/api/backoffice/tickets/HLP-42/development-references",
+    expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "If-Match": '"4"', "Idempotency-Key": expect.any(String) }),
+      body: JSON.stringify({ type: "github", url: reference.url, label: "GH-42" }),
+    }),
+  ));
+  fireEvent.click(await screen.findByRole("button", { name: "Remove GH-42" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    "/api/backoffice/tickets/HLP-42/development-references/reference-1",
+    expect.objectContaining({
+      method: "DELETE",
+      headers: expect.objectContaining({ "If-Match": '"5"', "Idempotency-Key": expect.any(String) }),
+    }),
+  ));
 });
 
 it("keeps a reply draft visible when the ticket version is stale", async () => {

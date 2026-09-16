@@ -40,11 +40,20 @@ type NotificationDelivery = {
   last_error: string | null;
   created_at: string;
 };
+type DevelopmentReference = {
+  id: string;
+  type: "planaffe" | "github" | "gitlab";
+  url: string;
+  label: string;
+  position: number;
+  created_at: string;
+};
 type TicketDetail = {
   summary: TicketSummary;
   requester: { external_user_id: string; name: string; email: string };
   context: Record<string, unknown> | null;
   support_instructions: string;
+  development_references: DevelopmentReference[];
   notifications: NotificationDelivery[];
   conversation: ConversationEntry[];
 };
@@ -79,6 +88,7 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   const [replyStatus, setReplyStatus] = useState<TicketStatus>("waiting_for_customer");
   const [note, setNote] = useState("");
   const [snoozeUntil, setSnoozeUntil] = useState("");
+  const [referenceDraft, setReferenceDraft] = useState({ type: "github", url: "", label: "" });
   const [composer, setComposer] = useState<"reply" | "note">("reply");
   const [conflict, setConflict] = useState<{ detail: string; currentVersion?: number } | null>(null);
   const [notice, setNotice] = useState("");
@@ -282,6 +292,24 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
     }));
   }
 
+  async function addDevelopmentReference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!detail || !referenceDraft.url.trim() || !referenceDraft.label.trim()) return;
+    await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/development-references`, {
+      method: "POST",
+      headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
+      body: JSON.stringify(referenceDraft),
+    }), () => setReferenceDraft(current => ({ ...current, url: "", label: "" })));
+  }
+
+  async function removeDevelopmentReference(referenceId: string) {
+    if (!detail) return;
+    await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/development-references/${encodeURIComponent(referenceId)}`, {
+      method: "DELETE",
+      headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
+    }));
+  }
+
   function selectQueue(value: Queue) {
     setQueue(value);
     setDetail(null);
@@ -385,6 +413,21 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
               <button type="submit">Snooze ticket</button>
               {detail.summary.snoozed_until && <button type="button" className="secondary" onClick={() => void clearSnooze()}>Clear snooze</button>}
             </form>
+            <section className="development-references" aria-label="Development references">
+              <p className="eyebrow">Development references</p>
+              {detail.development_references.length === 0 ? <span className="muted">No linked development tasks.</span> : <ol>
+                {detail.development_references.map(reference => <li key={reference.id}>
+                  <a href={reference.url} target="_blank" rel="noreferrer"><strong>{reference.label}</strong><span>{reference.type}</span></a>
+                  <button type="button" className="secondary compact" onClick={() => void removeDevelopmentReference(reference.id)}>Remove {reference.label}</button>
+                </li>)}
+              </ol>}
+              <form className="reference-form" onSubmit={addDevelopmentReference}>
+                <label>Task system<select value={referenceDraft.type} onChange={event => setReferenceDraft(current => ({ ...current, type: event.target.value }))}><option value="planaffe">Planaffe</option><option value="github">GitHub</option><option value="gitlab">GitLab</option></select></label>
+                <label>Reference<input value={referenceDraft.label} maxLength={200} onChange={event => setReferenceDraft(current => ({ ...current, label: event.target.value }))} required /></label>
+                <label>HTTPS URL<input type="url" pattern="https://.*" value={referenceDraft.url} maxLength={2048} onChange={event => setReferenceDraft(current => ({ ...current, url: event.target.value }))} required /></label>
+                <button type="submit">Add reference</button>
+              </form>
+            </section>
             <div className="requester-card"><p className="eyebrow">Requester</p><strong>{detail.requester.name}</strong><a href={`mailto:${detail.requester.email}`}>{detail.requester.email}</a><span>{detail.requester.external_user_id}</span></div>
             <section className="related-tickets" aria-label="Other tickets from this requester">
               <p className="eyebrow">Other requester tickets</p>

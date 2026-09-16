@@ -176,6 +176,37 @@ public sealed class TicketTests
             entry.Body.StartsWith("Snooze cleared by customer reply", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Development_references_keep_insertion_order_and_are_audited_on_add_and_remove()
+    {
+        var userId = Guid.NewGuid();
+        var agentId = Guid.NewGuid();
+        var ticket = CreateTicket();
+        var firstId = Guid.NewGuid();
+
+        var first = ticket.AddDevelopmentReference(
+            firstId, DevelopmentReferenceType.GitHub, "https://github.com/example/app/issues/42", "GH-42",
+            userId, agentId, CreatedAt.AddMinutes(1));
+        var second = ticket.AddDevelopmentReference(
+            Guid.NewGuid(), DevelopmentReferenceType.Planaffe, "https://plan.example.test/HELP-18", "HELP-18",
+            userId, agentId, CreatedAt.AddMinutes(2));
+
+        Assert.Equal(1, first.Position);
+        Assert.Equal(2, second.Position);
+        Assert.Equal(3, ticket.Version);
+        Assert.Throws<InvalidOperationException>(() => ticket.AddDevelopmentReference(
+            Guid.NewGuid(), DevelopmentReferenceType.GitHub, "https://github.com/example/app/issues/42", "duplicate",
+            userId, agentId, CreatedAt.AddMinutes(3)));
+
+        var removed = ticket.RemoveDevelopmentReference(firstId, userId, agentId, CreatedAt.AddMinutes(4));
+
+        Assert.Same(first, removed);
+        Assert.Same(second, Assert.Single(ticket.DevelopmentReferences));
+        Assert.Equal(4, ticket.Version);
+        Assert.Contains(ticket.Conversation, entry => entry.Body.Contains("Development reference added: GitHub GH-42", StringComparison.Ordinal));
+        Assert.Contains(ticket.Conversation, entry => entry.Body.Contains("Development reference removed: GitHub GH-42", StringComparison.Ordinal));
+    }
+
     private static Ticket CreateTicket(Guid? projectId = null) => Ticket.Create(
         Guid.NewGuid(),
         "HLP-42",

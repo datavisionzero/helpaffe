@@ -19,6 +19,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<ConversationEntry> ConversationEntries => Set<ConversationEntry>();
+    public DbSet<DevelopmentReference> DevelopmentReferences => Set<DevelopmentReference>();
     public DbSet<ProjectEmailSettingsRecord> ProjectEmailSettings => Set<ProjectEmailSettingsRecord>();
     public DbSet<ProjectEmailTemplateRecord> ProjectEmailTemplates => Set<ProjectEmailTemplateRecord>();
     public DbSet<NotificationDeliveryRecord> NotificationDeliveries => Set<NotificationDeliveryRecord>();
@@ -110,6 +111,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         ticket.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Restrict);
         ticket.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.AssigneeUserId).OnDelete(DeleteBehavior.SetNull);
         ticket.HasMany(value => value.Conversation).WithOne().HasForeignKey(value => value.TicketId).OnDelete(DeleteBehavior.Cascade);
+        ticket.HasMany(value => value.DevelopmentReferences).WithOne().HasForeignKey(value => value.TicketId).OnDelete(DeleteBehavior.Cascade);
 
         var entry = modelBuilder.Entity<ConversationEntry>();
         entry.ToTable("ticket_conversation");
@@ -119,6 +121,15 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         entry.HasIndex(value => new { value.TicketId, value.Sequence }).IsUnique();
         entry.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.ActorUserId).OnDelete(DeleteBehavior.Restrict);
         entry.HasOne<AgentCredentialRecord>().WithMany().HasForeignKey(value => value.ActingAgentCredentialId).OnDelete(DeleteBehavior.Restrict);
+
+        var developmentReference = modelBuilder.Entity<DevelopmentReference>();
+        developmentReference.ToTable("ticket_development_references");
+        developmentReference.HasKey(value => value.Id);
+        developmentReference.Property(value => value.Type).HasConversion<string>().HasMaxLength(32);
+        developmentReference.Property(value => value.Url).HasColumnName("url").HasMaxLength(2048);
+        developmentReference.Property(value => value.Label).HasColumnName("label").HasMaxLength(200);
+        developmentReference.HasIndex(value => new { value.TicketId, value.Position }).IsUnique();
+        developmentReference.HasIndex(value => new { value.TicketId, value.Url }).IsUnique();
 
         var idempotency = modelBuilder.Entity<IdempotencyRecord>();
         idempotency.ToTable("idempotency_records");
