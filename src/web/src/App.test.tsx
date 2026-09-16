@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { SupportWorkspace } from "./SupportWorkspace";
 import { EmailAdministration } from "./EmailAdministration";
+import { SolutionsWorkspace } from "./SolutionsWorkspace";
 
 const user = { id: "support-1", email: "support@example.test", name: "Support", role: "support" as const };
 const project = { id: "project-1", key: "DOCS", name: "Documentation" };
@@ -222,6 +223,106 @@ it("keeps a reply draft visible when the ticket version is stale", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Reload ticket" }));
   await waitFor(() => expect(detailReads).toBe(2));
   expect(reply).toHaveValue("Keep this carefully written draft.");
+});
+
+it("searches, creates, and opens project solution articles", async () => {
+  const solution = {
+    id: "solution-1", project_id: project.id, key: "postgres-restart", title: "Restart PostgreSQL safely",
+    markdown: "Use the tested restart playbook.", version: 1, created_at: now, updated_at: now,
+  };
+  const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const path = String(input);
+    if (path.includes(`/projects/${project.id}/solutions?search=database`) && !init?.method) {
+      return response({ items: [solution], next_cursor: null });
+    }
+    if (path.endsWith(`/projects/${project.id}/solutions`) && !init?.method) {
+      return response({ items: [solution], next_cursor: null });
+    }
+    if (path.endsWith(`/projects/${project.id}/solutions/postgres-restart`) && !init?.method) {
+      return response(solution);
+    }
+    if (path.endsWith(`/projects/${project.id}/solutions`) && init?.method === "POST") {
+      return response({ ...solution, ...JSON.parse(String(init.body)), id: "solution-2", key: "cache-reset" }, 201);
+    }
+    throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<SolutionsWorkspace projects={[project]} />);
+
+  expect(await screen.findByRole("button", { name: /postgres-restart.*Restart PostgreSQL safely/s })).toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText("Title or Markdown…"), { target: { value: "database" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  await waitFor(() => expect(fetch.mock.calls.some(([path]) => String(path).includes("solutions?search=database"))).toBe(true));
+
+  fireEvent.click(screen.getByRole("button", { name: "New article" }));
+  fireEvent.change(screen.getByLabelText("Key"), { target: { value: "cache-reset" } });
+  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Reset the cache" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Markdown" }), { target: { value: "Clear cached data safely." } });
+  fireEvent.click(screen.getByRole("button", { name: "Create article" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    `/api/backoffice/projects/${project.id}/solutions`,
+    expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+      body: JSON.stringify({ key: "cache-reset", title: "Reset the cache", markdown: "Clear cached data safely." }),
+    }),
+  ));
+  expect(await screen.findByRole("heading", { name: "Reset the cache" })).toBeInTheDocument();
+});
+
+it("preserves a solution draft across a stale conflict and confirms deletion", async () => {
+  const solution = {
+    id: "solution-1", project_id: project.id, key: "postgres-restart", title: "Restart PostgreSQL safely",
+    markdown: "Original runbook.", version: 1, created_at: now, updated_at: now,
+  };
+  let detailReads = 0;
+  let updates = 0;
+  let deleted = false;
+  const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const path = String(input);
+    if (path.endsWith(`/projects/${project.id}/solutions`) && !init?.method) {
+      return response({ items: deleted ? [] : [solution], next_cursor: null });
+    }
+    if (path.endsWith(`/projects/${project.id}/solutions/postgres-restart`) && !init?.method) {
+      detailReads += 1;
+      return response({ ...solution, version: detailReads === 1 ? 1 : 2, markdown: detailReads === 1 ? solution.markdown : "Someone else's runbook." });
+    }
+    if (path.endsWith(`/projects/${project.id}/solutions/postgres-restart`) && init?.method === "PUT") {
+      updates += 1;
+      if (updates === 1) return response({ type: "/problems/stale", detail: "The solution article changed.", current_version: 2 }, 412);
+      expect(init.headers).toEqual(expect.objectContaining({ "If-Match": '"2"' }));
+      return response({ ...solution, ...JSON.parse(String(init.body)), version: 3 });
+    }
+    if (path.endsWith(`/projects/${project.id}/solutions/postgres-restart`) && init?.method === "DELETE") {
+      expect(init.headers).toEqual(expect.objectContaining({ "If-Match": '"3"' }));
+      deleted = true;
+      return response(null, 204);
+    }
+    throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<SolutionsWorkspace projects={[project]} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: /postgres-restart.*Restart PostgreSQL safely/s }));
+  expect(await screen.findByRole("heading", { name: "Restart PostgreSQL safely" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Edit article" }));
+  const markdown = screen.getByRole("textbox", { name: "Markdown" });
+  fireEvent.change(markdown, { target: { value: "Carefully revised runbook." } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(await screen.findByText("This article changed while you were editing.")).toBeInTheDocument();
+  expect(markdown).toHaveValue("Carefully revised runbook.");
+
+  fireEvent.click(screen.getByRole("button", { name: "Reload article" }));
+  await waitFor(() => expect(detailReads).toBe(2));
+  expect(screen.getByRole("textbox", { name: "Markdown" })).toHaveValue("Carefully revised runbook.");
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(await screen.findByText("Solution article updated.")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Delete article" }));
+  expect(screen.getByText("Delete this solution article?")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+  expect(await screen.findByText("Solution article deleted.")).toBeInTheDocument();
+  expect(await screen.findByText("No solutions yet.")).toBeInTheDocument();
 });
 
 it("keeps human administration behind its navigation entry", async () => {

@@ -2,8 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { Administration } from "./Administration";
 import { call, CurrentUser, message, Project } from "./api";
 import { SupportWorkspace } from "./SupportWorkspace";
+import { SolutionsWorkspace } from "./SolutionsWorkspace";
 
-type View = "tickets" | "administration";
+type View = "tickets" | "solutions" | "administration";
 
 export function App() {
   const [user, setUser] = useState<CurrentUser | null>();
@@ -70,14 +71,15 @@ export function App() {
         <span className="wordmark">helpaffe</span>
         <nav aria-label="Primary navigation">
           <button className={view === "tickets" ? "nav-link active" : "nav-link"} onClick={() => setView("tickets")}>Work queue</button>
+          <button className={view === "solutions" ? "nav-link active" : "nav-link"} onClick={() => setView("solutions")}>Solutions</button>
           <button className={view === "administration" ? "nav-link active" : "nav-link"} onClick={() => setView("administration")}>{user.role === "administrator" ? "Administration" : "Agent access"}</button>
         </nav>
       </div>
       <div className="account"><span>{user.name}</span><button className="secondary compact" onClick={signOut}>Sign out</button></div>
     </header>
     {error && <p className="error global-banner" role="alert">{error}</p>}
-    {view === "tickets"
-      ? <SupportWorkspace user={user} projects={projects} />
-      : <Administration user={user} projects={projects} onProjectsChanged={refreshProjects} />}
+    {view === "tickets" && <SupportWorkspace user={user} projects={projects} />}
+    {view === "solutions" && <SolutionsWorkspace projects={projects} />}
+    {view === "administration" && <Administration user={user} projects={projects} onProjectsChanged={refreshProjects} />}
   </main>;
 }
