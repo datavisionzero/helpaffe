@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../../src/Helpaffe.Sdk/Helpaffe.Sdk.csproj" />
+  </ItemGroup>
+</Project>

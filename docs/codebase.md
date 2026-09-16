@@ -34,6 +34,7 @@ src/web                         the React application
 tests/Helpaffe.UnitTests        Domain and Application without infrastructure
 tests/Helpaffe.IntegrationTests API, persistence, migrations, and concurrency
 tests/Helpaffe.Sdk.Tests        SDK request and contract behavior
+examples/Helpaffe.ProductExample minimal server-side product integration
 deploy                          Dockerfile, Compose, and environment example
 docs/api                        checked-in backoffice and product OpenAPI documents
 ```

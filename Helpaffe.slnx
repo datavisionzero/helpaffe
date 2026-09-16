@@ -4,9 +4,14 @@
     <Project Path="src/Helpaffe.Application/Helpaffe.Application.csproj" />
     <Project Path="src/Helpaffe.Domain/Helpaffe.Domain.csproj" />
     <Project Path="src/Helpaffe.Infrastructure/Helpaffe.Infrastructure.csproj" />
+    <Project Path="src/Helpaffe.Sdk/Helpaffe.Sdk.csproj" />
+  </Folder>
+  <Folder Name="/examples/">
+    <Project Path="examples/Helpaffe.ProductExample/Helpaffe.ProductExample.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Helpaffe.IntegrationTests/Helpaffe.IntegrationTests.csproj" />
+    <Project Path="tests/Helpaffe.Sdk.Tests/Helpaffe.Sdk.Tests.csproj" />
     <Project Path="tests/Helpaffe.UnitTests/Helpaffe.UnitTests.csproj" />
   </Folder>
 </Solution>
