@@ -63,6 +63,13 @@ in its generated or public surface. Generated client code is build output and
 is not committed; the OpenAPI documents are committed and contract-tested
 against a running API.
 
+The canonical support terms are defined in [`CONTEXT.md`](../CONTEXT.md). The
+ticket aggregate owns its immutable chronological conversation and enforces the
+fixed status, priority, visibility, and actor-attribution rules. PostgreSQL
+stores tickets under an instance-wide unique short number; every conversation
+entry has a ticket-local sequence so customer messages, public replies, internal
+notes, and system events retain a stable order.
+
 ## Test boundary
 
 Unit tests cover domain rules and application use cases through substituted
