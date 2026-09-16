@@ -223,6 +223,11 @@ operations are:
 | `POST /api/backoffice/tickets/{number}/notifications/{notificationId}/retry` | Retry one failed email delivery without changing the ticket version or conversation |
 | `GET /api/backoffice/projects/{projectId}/support-instructions` | Read project Markdown instructions within current project scope |
 | `PUT /api/backoffice/projects/{projectId}/support-instructions` | Replace instructions as an administrator or administrator agent |
+| `GET /api/backoffice/projects/{projectId}/solutions` | List or full-text search internal solution articles in one visible project |
+| `POST /api/backoffice/projects/{projectId}/solutions` | Create a project-local Markdown solution article |
+| `GET /api/backoffice/projects/{projectId}/solutions/{key}` | Read one solution article by its stable key |
+| `PUT /api/backoffice/projects/{projectId}/solutions/{key}` | Replace an article's title and Markdown with version checking |
+| `DELETE /api/backoffice/projects/{projectId}/solutions/{key}` | Delete an obsolete article with version checking |
 
 Ticket resources outside the caller's current human-and-agent project
 intersection return `not-found`. An assignee must be active and currently able
@@ -256,6 +261,14 @@ an HTTPS URL, and a short display label. They are support-only ticket context:
 helpaffe neither contacts nor synchronizes the referenced system. Adding and
 removing a reference creates an internal system event, and duplicate URLs on a
 ticket are rejected.
+
+Solution articles are internal, project-scoped Markdown documents addressed by
+an immutable lowercase key. Support users and their agents can create, read,
+search, update, and delete them within their effective project scope. Lists use
+most-recently-updated ordering and actor-, project-, and search-bound cursors;
+search uses PostgreSQL web-style full-text matching over title and Markdown.
+Reads return the positive article version and matching ETag. Updates and deletes
+require that version in `If-Match`, so a concurrent edit is rejected as stale.
 
 `wait` returns immediately when an eligible Open ticket exists. Otherwise it
 waits for a customer reply newer than its actor- and project-bound cursor. A

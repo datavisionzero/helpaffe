@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Helpaffe.Domain.Tickets;
+using Helpaffe.Domain.Solutions;
 using Helpaffe.Infrastructure.Identity;
 using Helpaffe.Infrastructure.Notifications;
 
@@ -20,6 +21,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<ConversationEntry> ConversationEntries => Set<ConversationEntry>();
     public DbSet<DevelopmentReference> DevelopmentReferences => Set<DevelopmentReference>();
+    public DbSet<SolutionArticle> SolutionArticles => Set<SolutionArticle>();
     public DbSet<ProjectEmailSettingsRecord> ProjectEmailSettings => Set<ProjectEmailSettingsRecord>();
     public DbSet<ProjectEmailTemplateRecord> ProjectEmailTemplates => Set<ProjectEmailTemplateRecord>();
     public DbSet<NotificationDeliveryRecord> NotificationDeliveries => Set<NotificationDeliveryRecord>();
@@ -130,6 +132,20 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         developmentReference.Property(value => value.Label).HasColumnName("label").HasMaxLength(200);
         developmentReference.HasIndex(value => new { value.TicketId, value.Position }).IsUnique();
         developmentReference.HasIndex(value => new { value.TicketId, value.Url }).IsUnique();
+
+        var solutionArticle = modelBuilder.Entity<SolutionArticle>();
+        solutionArticle.ToTable("solution_articles", table =>
+            table.HasCheckConstraint("CK_solution_articles_Version_Positive", "\"version\" >= 1"));
+        solutionArticle.HasKey(value => value.Id);
+        solutionArticle.Property(value => value.Key).HasColumnName("key").HasMaxLength(80);
+        solutionArticle.Property(value => value.Title).HasColumnName("title").HasMaxLength(200);
+        solutionArticle.Property(value => value.Markdown).HasColumnName("markdown");
+        solutionArticle.Property(value => value.Version).HasColumnName("version").IsConcurrencyToken();
+        solutionArticle.Property(value => value.CreatedAt).HasColumnName("created_at");
+        solutionArticle.Property(value => value.UpdatedAt).HasColumnName("updated_at");
+        solutionArticle.HasIndex(value => new { value.ProjectId, value.Key }).IsUnique();
+        solutionArticle.HasIndex(value => new { value.ProjectId, value.UpdatedAt, value.Id });
+        solutionArticle.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
 
         var idempotency = modelBuilder.Entity<IdempotencyRecord>();
         idempotency.ToTable("idempotency_records");

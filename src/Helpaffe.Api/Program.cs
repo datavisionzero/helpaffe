@@ -60,6 +60,7 @@ app.MapGet("/api/backoffice/version", () => Results.Ok(new
 }));
 app.MapBackoffice();
 app.MapTickets();
+app.MapSolutions();
 app.MapProduct();
 app.MapNotificationConfiguration();
 app.MapNotifications();
