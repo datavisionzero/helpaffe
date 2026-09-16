@@ -135,6 +135,8 @@ public sealed class CredentialBoundaryTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await firstProduct.GetAsync("/api/backoffice/projects", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized,
+            (await firstProduct.GetAsync("/api/backoffice/tickets?search=internal", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
             (await admin.GetAsync("/api/product/project", TestContext.Current.CancellationToken)).StatusCode);
 
         var revoked = await admin.DeleteAsync($"/api/backoffice/product-keys/{first.Id}", TestContext.Current.CancellationToken);

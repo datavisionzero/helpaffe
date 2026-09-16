@@ -50,7 +50,7 @@ public sealed class SupportApiTests : IAsyncLifetime
             (await PatchJson(adminAgent, $"/api/backoffice/projects/{firstProject}", new { name = "First product renamed" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await PatchJson(supportAgent, $"/api/backoffice/projects/{firstProject}", new { name = "Forbidden" })).StatusCode);
-        await SeedTickets(factory, firstProject, secondProject);
+        await SeedTickets(factory, firstProject, secondProject, support);
 
         var instructions = await PutJson(adminAgent, $"/api/backoffice/projects/{firstProject}/support-instructions", new
         {
@@ -68,6 +68,21 @@ public sealed class SupportApiTests : IAsyncLifetime
             "/api/backoffice/tickets?search=blank",
             TestContext.Current.CancellationToken));
         Assert.Single(searched.GetProperty("items").EnumerateArray());
+        var resolvedSearch = await Read(await supportAgent.GetAsync(
+            $"/api/backoffice/tickets?search=cache&status=resolved&project_id={firstProject}",
+            TestContext.Current.CancellationToken));
+        Assert.Equal("HLP-203", resolvedSearch.GetProperty("items")[0].GetProperty("number").GetString());
+        var hiddenSearch = await Read(await supportAgent.GetAsync(
+            "/api/backoffice/tickets?search=second",
+            TestContext.Current.CancellationToken));
+        Assert.Empty(hiddenSearch.GetProperty("items").EnumerateArray());
+        var requesterTickets = await Read(await adminAgent.GetAsync(
+            "/api/backoffice/tickets/HLP-201/requester-tickets",
+            TestContext.Current.CancellationToken));
+        Assert.Single(requesterTickets.GetProperty("items").EnumerateArray());
+        Assert.Equal("HLP-203", requesterTickets.GetProperty("items")[0].GetProperty("number").GetString());
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await supportAgent.GetAsync("/api/backoffice/tickets/HLP-202/requester-tickets", TestContext.Current.CancellationToken)).StatusCode);
 
         var firstPage = await Read(await supportAgent.GetAsync("/api/backoffice/tickets?limit=1", TestContext.Current.CancellationToken));
         var cursor = firstPage.GetProperty("next_cursor").GetString();
@@ -212,14 +227,21 @@ public sealed class SupportApiTests : IAsyncLifetime
         return BearerClient(factory, token);
     }
 
-    private static async Task SeedTickets(WebApplicationFactory<Program> factory, Guid firstProject, Guid secondProject)
+    private static async Task SeedTickets(
+        WebApplicationFactory<Program> factory,
+        Guid firstProject,
+        Guid secondProject,
+        Guid supportUserId)
     {
         await using var scope = factory.Services.CreateAsyncScope();
         await using var database = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<HelpaffeDbContext>>()
             .CreateDbContextAsync(TestContext.Current.CancellationToken);
-        database.Tickets.Add(Ticket.Create(Guid.NewGuid(), "HLP-201", firstProject, "Settings are blank", "first-user", "First User", "first@example.test", "The page is blank.", DateTimeOffset.UtcNow.AddMinutes(-3)));
-        database.Tickets.Add(Ticket.Create(Guid.NewGuid(), "HLP-202", secondProject, "Second project ticket", "second-user", "Second User", "second@example.test", "Help needed.", DateTimeOffset.UtcNow.AddMinutes(-2)));
-        database.Tickets.Add(Ticket.Create(Guid.NewGuid(), "HLP-203", firstProject, "Another request", "third-user", "Third User", "third@example.test", "Another question.", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        const string sharedRequesterId = "shared-user";
+        database.Tickets.Add(Ticket.Create(Guid.NewGuid(), "HLP-201", firstProject, "Settings are blank", sharedRequesterId, "First User", "first@example.test", "The page is blank.", DateTimeOffset.UtcNow.AddMinutes(-3)));
+        database.Tickets.Add(Ticket.Create(Guid.NewGuid(), "HLP-202", secondProject, "Second project ticket", sharedRequesterId, "First User", "first@example.test", "Help needed in the second project.", DateTimeOffset.UtcNow.AddMinutes(-2)));
+        var previous = Ticket.Create(Guid.NewGuid(), "HLP-203", firstProject, "Another request", sharedRequesterId, "First User", "first@example.test", "A recurring cache invalidation problem.", DateTimeOffset.UtcNow.AddMinutes(-1));
+        previous.ChangeStatus(TicketStatus.Resolved, supportUserId, null, DateTimeOffset.UtcNow);
+        database.Tickets.Add(previous);
         await database.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 

@@ -12,6 +12,10 @@ _Avoid_: Product, tenant, workspace
 An end user identified by a stable external user ID within one project, with a current display name and email address.
 _Avoid_: Customer account, helpaffe user
 
+**Requester Ticket History**:
+The other tickets whose requester has the same stable external user ID within the same project. It is support context derived from a visible ticket, not a cross-project customer record.
+_Avoid_: Customer profile, CRM record, global requester history
+
 **Support User**:
 A human helpaffe user who may be assigned tickets and remains responsible for work performed by their agents.
 _Avoid_: Agent, requester

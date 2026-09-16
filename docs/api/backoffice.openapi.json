@@ -32,7 +32,7 @@
           { "name": "project_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
           { "name": "assignee_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
           { "name": "mine", "in": "query", "schema": { "type": "boolean", "default": false } },
-          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "description": "PostgreSQL web-style full-text query across ticket metadata and conversation text", "schema": { "type": "string" } },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } },
           { "name": "cursor", "in": "query", "schema": { "type": "string" } }
         ],
@@ -85,6 +85,24 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "412": { "$ref": "#/components/responses/Stale" },
           "428": { "$ref": "#/components/responses/VersionRequired" }
+        }
+      }
+    },
+    "/tickets/{number}/requester-tickets": {
+      "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
+      "get": {
+        "operationId": "listRequesterTickets",
+        "summary": "List other visible tickets for the same stable requester id in the same project",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/TicketStatus" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Other tickets for this requester and project", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketPage" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },

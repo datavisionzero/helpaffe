@@ -200,8 +200,9 @@ operations are:
 | Method and path | Purpose |
 | --- | --- |
 | `GET /api/backoffice/assignees` | List active support users eligible in the visible project scope, optionally for one project |
-| `GET /api/backoffice/tickets` | Filter visible tickets by status, priority, project, assignee, `mine`, or text search with a bound cursor |
+| `GET /api/backoffice/tickets` | Filter visible tickets by status, priority, project, assignee, `mine`, or PostgreSQL full-text search with a bound cursor |
 | `GET /api/backoffice/tickets/{number}` | Read the requester, complete conversation, actor attribution, and project support instructions together |
+| `GET /api/backoffice/tickets/{number}/requester-tickets` | List other tickets for the same stable requester ID within that ticket's project |
 | `POST /api/backoffice/tickets/next` | Atomically assign and start the urgent-first, longest-waiting eligible Open ticket |
 | `PATCH /api/backoffice/tickets/{number}` | Change status, priority, or eligible human assignee |
 | `POST /api/backoffice/tickets/{number}/replies` | Atomically add a public reply and its resulting status |
@@ -215,6 +216,13 @@ to access the ticket's project. The assignee lookup applies the same project
 visibility and eligibility rules without exposing account administration.
 `mine=true` means tickets assigned to the human user, including work performed
 for that user by any of their named agents.
+
+The `search` parameter uses PostgreSQL web-style full-text parsing over ticket
+number, subject, requester name and email, and conversation text. It composes
+with project and status filters; GIN expression indexes cover ticket metadata
+and conversation bodies. Requester history derives both the project and stable
+external requester ID from a currently visible ticket, excludes that source
+ticket, and never joins the same external ID across projects.
 
 `next` considers only Open tickets that are unassigned or already assigned to
 the responsible human. It orders Urgent before Normal, then by `waiting_since`;

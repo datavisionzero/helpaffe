@@ -20,6 +20,7 @@ public static class TicketRoutes
         group.MapGet("/tickets", ListTickets);
         group.MapPost("/tickets/next", AcquireNextTicket);
         group.MapGet("/tickets/{number}", GetTicket);
+        group.MapGet("/tickets/{number}/requester-tickets", ListRequesterTickets);
         group.MapPatch("/tickets/{number}", UpdateTicket);
         group.MapPost("/tickets/{number}/replies", AddReply);
         group.MapPost("/tickets/{number}/notes", AddNote);
@@ -84,12 +85,13 @@ public static class TicketRoutes
         if (selectedAssignee is not null) query = query.Where(value => value.AssigneeUserId == selectedAssignee);
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var pattern = $"%{search.Trim()}%";
+            var searchText = search.Trim();
             query = query.Where(value =>
-                EF.Functions.ILike(value.Number, pattern) ||
-                EF.Functions.ILike(value.Subject, pattern) ||
-                EF.Functions.ILike(value.RequesterName, pattern) ||
-                EF.Functions.ILike(value.RequesterEmail, pattern));
+                EF.Functions.ToTsVector("simple",
+                    value.Number + " " + value.Subject + " " + value.RequesterName + " " + value.RequesterEmail)
+                    .Matches(EF.Functions.WebSearchToTsQuery("simple", searchText)) ||
+                value.Conversation.Any(entry => EF.Functions.ToTsVector("simple", entry.Body)
+                    .Matches(EF.Functions.WebSearchToTsQuery("simple", searchText))));
         }
         if (cursorUpdatedAt is not null)
             query = query.Where(value => value.UpdatedAt < cursorUpdatedAt || value.UpdatedAt == cursorUpdatedAt && value.Id.CompareTo(cursorId) > 0);
@@ -123,6 +125,50 @@ public static class TicketRoutes
         if (ticket is null) return NotFound();
         context.Response.Headers.ETag = ETag(ticket.Version);
         return Results.Ok(await TicketDetail(ticket, database, context.RequestAborted));
+    }
+
+    private static async Task<IResult> ListRequesterTickets(
+        string number,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory,
+        string? status = null,
+        int limit = 50,
+        string? cursor = null)
+    {
+        if (limit is < 1 or > 100) return Problem(400, "validation", "Limit must be between 1 and 100.");
+        if (!TryStatus(status, out var parsedStatus)) return Problem(400, "validation", "The ticket status is invalid.");
+
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var source = await LoadVisibleTicket(number, context, database);
+        if (source is null) return NotFound();
+        var signature = RequesterTicketsCursorSignature(context.Actor()!, source, status);
+        if (!TryCursor(cursor, signature, out var cursorUpdatedAt, out var cursorId))
+            return Problem(400, "cursor-invalid", "The cursor does not belong to this requester ticket query.");
+
+        var query = database.Tickets.AsNoTracking().Where(value =>
+            value.ProjectId == source.ProjectId &&
+            value.RequesterExternalId == source.RequesterExternalId &&
+            value.Id != source.Id);
+        if (parsedStatus is not null) query = query.Where(value => value.Status == parsedStatus);
+        if (cursorUpdatedAt is not null)
+            query = query.Where(value => value.UpdatedAt < cursorUpdatedAt || value.UpdatedAt == cursorUpdatedAt && value.Id.CompareTo(cursorId) > 0);
+
+        var tickets = await query.OrderByDescending(value => value.UpdatedAt).ThenBy(value => value.Id)
+            .Take(limit + 1)
+            .ToListAsync(context.RequestAborted);
+        var hasMore = tickets.Count > limit;
+        if (hasMore) tickets.RemoveAt(tickets.Count - 1);
+        var project = await database.Projects.AsNoTracking().SingleAsync(value => value.Id == source.ProjectId, context.RequestAborted);
+        var assigneeIds = tickets.Where(value => value.AssigneeUserId is not null)
+            .Select(value => value.AssigneeUserId!.Value).Distinct().ToArray();
+        var users = await database.Users.AsNoTracking().Where(value => assigneeIds.Contains(value.Id))
+            .ToDictionaryAsync(value => value.Id, context.RequestAborted);
+        return Results.Ok(new
+        {
+            items = tickets.Select(value => TicketSummary(value, project,
+                value.AssigneeUserId is { } id ? users.GetValueOrDefault(id) : null)),
+            next_cursor = hasMore ? EncodeCursor(tickets[^1], signature) : null,
+        });
     }
 
     private static async Task<IResult> AcquireNextTicket(
@@ -601,6 +647,13 @@ public static class TicketRoutes
     {
         var source = string.Join('|', actor.User.Id, actor.Agent?.Id, string.Join(',', projectIds), status, priority,
             projectId, assigneeId, mine, search?.Trim().ToUpperInvariant());
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..16];
+    }
+
+    private static string RequesterTicketsCursorSignature(BackofficeActor actor, Ticket sourceTicket, string? status)
+    {
+        var source = string.Join('|', "requester-tickets", actor.User.Id, actor.Agent?.Id, sourceTicket.Id,
+            sourceTicket.ProjectId, sourceTicket.RequesterExternalId, status);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..16];
     }
 
