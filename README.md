@@ -14,4 +14,6 @@ Product backends can integrate through the server-side
 product key behind its own authenticated backend.
 
 Build, test, and local Compose instructions are in
-[`docs/operations.md`](docs/operations.md).
+[`docs/operations.md`](docs/operations.md). The reproducible first complete
+product-to-support acceptance is in
+[`docs/acceptance.md`](docs/acceptance.md).

@@ -150,3 +150,70 @@ curl --retry 20 --retry-delay 1 --retry-connrefused --fail \
 
 The integration test `Empty_database_is_migrated_and_readiness_is_healthy`
 covers the same empty-database migration path in CI.
+
+## Database backup and restore
+
+Back up PostgreSQL independently of the Docker volume. Keep the matching
+`HELPAFFE_SECRETS_ENCRYPTION_KEY` in the deployment secret store: a database
+dump without that key cannot decrypt stored SMTP passwords. Create and inspect
+a custom-format dump with:
+
+```sh
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  exec -T db pg_dump -U helpaffe -d helpaffe \
+  --format=custom --no-owner --no-privileges > helpaffe.dump
+
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  exec -T db pg_restore --list < helpaffe.dump
+```
+
+Copy dumps to access-controlled, encrypted storage and test restores on a
+separate environment. A restore replaces the current database and therefore
+requires an announced maintenance window. After confirming the target and dump:
+
+```sh
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  stop helpaffe
+
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  exec -T db dropdb -U helpaffe --force helpaffe
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  exec -T db createdb -U helpaffe helpaffe
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  exec -T db pg_restore -U helpaffe -d helpaffe \
+  --exit-on-error --no-owner --no-privileges < helpaffe.dump
+
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  up -d helpaffe
+curl --retry 20 --retry-delay 1 --retry-connrefused --fail \
+  http://localhost:5066/health/ready
+```
+
+Restore with an application version at least as new as the version that wrote
+the dump. Startup applies any later forward migrations. Verify sign-in, one
+ticket read, and one configured SMTP test after restore before ending the
+maintenance window.
+
+## Running a named agent
+
+Build or install the CLI on the agent host, create a distinct named credential
+owned by the responsible support user, and inject it from the host's secret
+store. Never pass the token as a command-line flag or bake it into an image.
+
+```sh
+export HELPAFFE_URL=https://support.example.test
+export HELPAFFE_TOKEN=hfa_replace-from-secret-store
+helpaffe status
+helpaffe me
+helpaffe project list
+helpaffe ticket next --project PROJECT_UUID
+```
+
+Use `ticket get` before every mutation and pass its current version through
+`--version`. Supply long replies and notes through `--message-file` or
+`--note-file`; use `-` only when the harness intentionally provides stdin.
+Treat exit 6 as a stale-version signal: read again, reconsider the action, and
+never overwrite the concurrent change automatically. Revoke a credential when
+the automation is retired or suspected to be exposed. See
+[`cli.md`](cli.md) for commands and stable exit codes, and
+[`acceptance.md`](acceptance.md) for the complete two-product walkthrough.
