@@ -74,13 +74,16 @@ public sealed class SupportApiTests : IAsyncLifetime
                 $"/api/backoffice/tickets?limit=1&status=open&cursor={Uri.EscapeDataString(cursor!)}",
                 TestContext.Current.CancellationToken)).StatusCode);
 
-        var context = await Read(await supportAgent.GetAsync("/api/backoffice/tickets/HLP-201", TestContext.Current.CancellationToken));
+        var contextResponse = await supportAgent.GetAsync("/api/backoffice/tickets/HLP-201", TestContext.Current.CancellationToken);
+        Assert.Equal("\"1\"", contextResponse.Headers.ETag?.Tag);
+        var context = await Read(contextResponse);
+        var version = context.GetProperty("summary").GetProperty("version").GetInt32();
         Assert.Equal("# First product\n\nAsk for the release number.", context.GetProperty("support_instructions").GetString());
         Assert.Single(context.GetProperty("conversation").EnumerateArray());
         Assert.Equal(HttpStatusCode.BadRequest,
-            (await PostJson(supportAgent, "/api/backoffice/tickets/HLP-201/replies", new { message = "Must not persist", status = "open" })).StatusCode);
+            (await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/HLP-201/replies", new { message = "Must not persist", status = "open" }, version, "invalid-reply")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest,
-            (await PatchJson(supportAgent, "/api/backoffice/tickets/HLP-201", new { priority = "urgent", unknown_field = true })).StatusCode);
+            (await SendTicketJson(supportAgent, HttpMethod.Patch, "/api/backoffice/tickets/HLP-201", new { priority = "urgent", unknown_field = true }, version)).StatusCode);
 
         Assert.Equal(HttpStatusCode.Forbidden,
             (await PutJson(supportAgent, $"/api/backoffice/projects/{firstProject}/support-instructions", new { markdown = "Forbidden" })).StatusCode);
@@ -89,26 +92,40 @@ public sealed class SupportApiTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound,
             (await PostJson(supportAgent, "/api/backoffice/tickets/HLP-202/notes", new { message = "Forbidden" })).StatusCode);
 
-        var invalidAssignee = await PatchJson(supportAgent, "/api/backoffice/tickets/HLP-201", new { assignee_id = otherSupport });
+        var invalidAssignee = await SendTicketJson(supportAgent, HttpMethod.Patch, "/api/backoffice/tickets/HLP-201", new { assignee_id = otherSupport }, version);
         Assert.Equal(HttpStatusCode.BadRequest, invalidAssignee.StatusCode);
-        var assigned = await PatchJson(supportAgent, "/api/backoffice/tickets/HLP-201", new { assignee_id = support, priority = "urgent" });
+        var assigned = await SendTicketJson(supportAgent, HttpMethod.Patch, "/api/backoffice/tickets/HLP-201", new { assignee_id = support, priority = "urgent" }, version);
         Assert.True(assigned.IsSuccessStatusCode, await assigned.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        version = (await Read(assigned)).GetProperty("summary").GetProperty("version").GetInt32();
         var mine = await Read(await supportAgent.GetAsync("/api/backoffice/tickets?mine=true", TestContext.Current.CancellationToken));
         Assert.Single(mine.GetProperty("items").EnumerateArray());
 
-        var note = await PostJson(supportAgent, "/api/backoffice/tickets/HLP-201/notes", new { message = "Reproduced in production." });
+        var note = await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/HLP-201/notes", new { message = "Reproduced in production." }, version, "note-201");
         Assert.Equal(HttpStatusCode.OK, note.StatusCode);
-        var reply = await PostJson(supportAgent, "/api/backoffice/tickets/HLP-201/replies", new
+        version = (await Read(note)).GetProperty("summary").GetProperty("version").GetInt32();
+        var replyBody = new
         {
             message = "Please try the new release.",
             status = "waiting_for_customer",
-        });
+        };
+        var reply = await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/HLP-201/replies", replyBody, version, "reply-201");
         Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
         var replyDocument = await Read(reply);
         Assert.Equal("waiting_for_customer", replyDocument.GetProperty("summary").GetProperty("status").GetString());
+        var repliedVersion = replyDocument.GetProperty("summary").GetProperty("version").GetInt32();
         Assert.Contains(replyDocument.GetProperty("conversation").EnumerateArray(),
             value => value.GetProperty("kind").GetString() == "public_reply" &&
                      value.GetProperty("actor").GetProperty("agent_name").GetString() == "Support agent");
+        var replayed = await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/HLP-201/replies", replyBody, version, "reply-201");
+        Assert.Equal(HttpStatusCode.OK, replayed.StatusCode);
+        Assert.Equal(repliedVersion, (await Read(replayed)).GetProperty("summary").GetProperty("version").GetInt32());
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/HLP-201/replies", new { message = "Different", status = "resolved" }, version, "reply-201")).StatusCode);
+        var stale = await SendTicketJson(supportAgent, HttpMethod.Patch, "/api/backoffice/tickets/HLP-201", new { status = "resolved" }, version);
+        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        Assert.Equal(repliedVersion, (await Read(stale)).GetProperty("current_version").GetInt32());
+        Assert.Equal((HttpStatusCode)428,
+            (await PatchJson(supportAgent, "/api/backoffice/tickets/HLP-201", new { status = "resolved" })).StatusCode);
 
         await using var scope = factory.Services.CreateAsyncScope();
         await using var database = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<HelpaffeDbContext>>()
@@ -120,7 +137,9 @@ public sealed class SupportApiTests : IAsyncLifetime
         Assert.Equal(support, stored.AssigneeUserId);
         Assert.Contains(stored.Conversation, value => value.Kind is ConversationEntryKind.InternalNote && value.ActingAgentCredentialId is not null);
         Assert.Contains(stored.Conversation, value => value.Kind is ConversationEntryKind.PublicReply && value.ActingAgentCredentialId is not null);
+        Assert.Single(stored.Conversation, value => value.Kind is ConversationEntryKind.PublicReply);
         Assert.DoesNotContain(stored.Conversation, value => value.Body == "Must not persist");
+        Assert.Equal(repliedVersion, stored.Version);
     }
 
     private WebApplicationFactory<Program> CreateFactory() => new WebApplicationFactory<Program>()
@@ -209,6 +228,23 @@ public sealed class SupportApiTests : IAsyncLifetime
         {
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
         };
+        return client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    private static Task<HttpResponseMessage> SendTicketJson(
+        HttpClient client,
+        HttpMethod method,
+        string path,
+        object body,
+        int version,
+        string? idempotencyKey = null)
+    {
+        var request = new HttpRequestMessage(method, path)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.TryAddWithoutValidation("If-Match", $"\"{version}\"");
+        if (idempotencyKey is not null) request.Headers.Add("Idempotency-Key", idempotencyKey);
         return client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 

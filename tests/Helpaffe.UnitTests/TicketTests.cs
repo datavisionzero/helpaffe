@@ -18,6 +18,8 @@ public sealed class TicketTests
         Assert.Equal("external-7", ticket.RequesterExternalId);
         Assert.Equal(TicketStatus.Open, ticket.Status);
         Assert.Equal(TicketPriority.Normal, ticket.Priority);
+        Assert.Equal(1, ticket.Version);
+        Assert.Equal(CreatedAt, ticket.WaitingSince);
         Assert.Null(ticket.AssigneeUserId);
         var initial = Assert.Single(ticket.Conversation);
         Assert.Equal(ConversationEntryKind.CustomerMessage, initial.Kind);
@@ -93,6 +95,37 @@ public sealed class TicketTests
         var properties = typeof(ConversationEntry).GetProperties();
 
         Assert.All(properties.Where(value => value.SetMethod is not null), value => Assert.False(value.SetMethod!.IsPublic));
+    }
+
+    [Fact]
+    public void Further_customer_messages_do_not_reset_an_already_open_tickets_wait()
+    {
+        var ticket = CreateTicket();
+
+        ticket.AddCustomerMessage(Guid.NewGuid(), "One more detail", CreatedAt.AddMinutes(5));
+
+        Assert.Equal(CreatedAt, ticket.WaitingSince);
+        Assert.Equal(2, ticket.Version);
+    }
+
+    [Fact]
+    public void Reopening_resets_waiting_since_and_one_atomic_update_advances_version_once()
+    {
+        var userId = Guid.NewGuid();
+        var ticket = CreateTicket();
+        ticket.ChangeStatus(TicketStatus.Resolved, userId, null, CreatedAt.AddMinutes(1));
+        var beforeReply = ticket.Version;
+
+        ticket.AddCustomerMessage(Guid.NewGuid(), "This is not fixed", CreatedAt.AddMinutes(10));
+        var beforeCombinedUpdate = ticket.Version;
+        ticket.Update(TicketStatus.InProgress, TicketPriority.Urgent, true, userId, userId, null, CreatedAt.AddMinutes(11));
+
+        Assert.Equal(TicketStatus.InProgress, ticket.Status);
+        Assert.Equal(TicketPriority.Urgent, ticket.Priority);
+        Assert.Equal(userId, ticket.AssigneeUserId);
+        Assert.Equal(CreatedAt.AddMinutes(10), ticket.WaitingSince);
+        Assert.Equal(beforeReply + 1, beforeCombinedUpdate);
+        Assert.Equal(beforeCombinedUpdate + 1, ticket.Version);
     }
 
     private static Ticket CreateTicket(Guid? projectId = null) => Ticket.Create(

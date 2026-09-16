@@ -29,13 +29,32 @@
         }
       }
     },
+    "/tickets/next": {
+      "post": {
+        "operationId": "acquireNextTicket",
+        "summary": "Atomically acquire the highest-priority longest-waiting eligible ticket",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object",
+          "properties": { "project_id": { "type": ["string", "null"], "format": "uuid" } },
+          "additionalProperties": false
+        } } } },
+        "responses": {
+          "200": { "description": "Acquired ticket, assigned to the responsible user and In Progress", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
     "/tickets/{number}": {
       "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
       "get": {
         "operationId": "getTicket",
         "summary": "Read one ticket with its complete support context",
         "responses": {
-          "200": { "description": "Ticket, requester, instructions, and conversation", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "200": { "description": "Ticket, requester, instructions, and conversation", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
@@ -43,12 +62,15 @@
       "patch": {
         "operationId": "updateTicket",
         "summary": "Change ticket status, priority, or assignee",
+        "parameters": [{ "$ref": "#/components/parameters/IfMatch" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateTicket" } } } },
         "responses": {
           "200": { "description": "Updated ticket context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthenticated" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "412": { "$ref": "#/components/responses/Stale" },
+          "428": { "$ref": "#/components/responses/VersionRequired" }
         }
       }
     },
@@ -57,12 +79,16 @@
       "post": {
         "operationId": "replyToTicket",
         "summary": "Atomically add a public reply and set its resulting status",
+        "parameters": [{ "$ref": "#/components/parameters/IfMatch" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddReply" } } } },
         "responses": {
-          "200": { "description": "Updated ticket context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "200": { "description": "Updated or replayed ticket context", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthenticated" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "412": { "$ref": "#/components/responses/Stale" },
+          "428": { "$ref": "#/components/responses/VersionRequired" }
         }
       }
     },
@@ -71,12 +97,16 @@
       "post": {
         "operationId": "addTicketNote",
         "summary": "Add a support-only internal note",
+        "parameters": [{ "$ref": "#/components/parameters/IfMatch" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddNote" } } } },
         "responses": {
-          "200": { "description": "Updated ticket context", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "200": { "description": "Updated or replayed ticket context", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthenticated" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "412": { "$ref": "#/components/responses/Stale" },
+          "428": { "$ref": "#/components/responses/VersionRequired" }
         }
       }
     },
@@ -130,13 +160,21 @@
       "agentToken": { "type": "http", "scheme": "bearer", "bearerFormat": "hfa_ token" }
     },
     "parameters": {
-      "TicketNumber": { "name": "number", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 32 }, "example": "HLP-42" }
+      "TicketNumber": { "name": "number", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 32 }, "example": "HLP-42" },
+      "IfMatch": { "name": "If-Match", "in": "header", "required": true, "schema": { "type": "string", "pattern": "^\\\"[1-9][0-9]*\\\"$" }, "example": "\"8\"" },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 200 } }
+    },
+    "headers": {
+      "ETag": { "description": "Quoted positive ticket version", "schema": { "type": "string" }, "example": "\"8\"" }
     },
     "responses": {
       "BadRequest": { "description": "Validation or cursor error", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
       "Unauthenticated": { "description": "Credential missing, unknown, or revoked", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
       "Forbidden": { "description": "The actor cannot perform this operation", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
-      "NotFound": { "description": "Resource absent or outside project scope", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
+      "NotFound": { "description": "Resource absent, outside project scope, or no eligible next ticket", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Conflict": { "description": "An idempotency key was reused for a different request", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Stale": { "description": "The ticket version changed", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/StaleProblem" } } } },
+      "VersionRequired": { "description": "If-Match was omitted", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
     },
     "schemas": {
       "TicketStatus": { "type": "string", "enum": ["open", "in_progress", "waiting_for_customer", "resolved"] },
@@ -162,7 +200,7 @@
       },
       "TicketSummary": {
         "type": "object",
-        "required": ["id", "number", "project", "subject", "status", "priority", "assignee", "created_at", "updated_at", "last_customer_reply_at"],
+        "required": ["id", "number", "project", "subject", "status", "priority", "version", "assignee", "created_at", "updated_at", "last_customer_reply_at", "waiting_since"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "number": { "type": "string" },
@@ -170,10 +208,12 @@
           "subject": { "type": "string" },
           "status": { "$ref": "#/components/schemas/TicketStatus" },
           "priority": { "$ref": "#/components/schemas/TicketPriority" },
+          "version": { "type": "integer", "minimum": 1 },
           "assignee": { "$ref": "#/components/schemas/UserSummary" },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
-          "last_customer_reply_at": { "type": "string", "format": "date-time" }
+          "last_customer_reply_at": { "type": "string", "format": "date-time" },
+          "waiting_since": { "type": "string", "format": "date-time" }
         },
         "additionalProperties": false
       },
@@ -277,6 +317,12 @@
           "detail": { "type": "string" },
           "instance": { "type": "string" }
         }
+      },
+      "StaleProblem": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Problem" },
+          { "type": "object", "required": ["current_version"], "properties": { "current_version": { "type": "integer", "minimum": 1 } } }
+        ]
       }
     }
   }

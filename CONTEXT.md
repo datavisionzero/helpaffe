@@ -46,6 +46,14 @@ _Avoid_: Closed, blocked, custom status
 Either Normal or Urgent. New tickets have Normal priority unless Urgent is explicitly chosen.
 _Avoid_: Severity, rank, custom priority
 
+**Ticket Version**:
+A positive counter representing the complete current ticket state. One atomic ticket change advances it exactly once, regardless of how many fields or conversation entries that change contains.
+_Avoid_: Conversation sequence, release version
+
+**Waiting Since**:
+The instant an Open ticket most recently began waiting for support, used after priority to order next-ticket acquisition. Further customer messages while already Open do not reset it.
+_Avoid_: Updated at, last customer reply
+
 ## Conversation
 
 **Conversation Entry**:

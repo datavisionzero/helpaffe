@@ -15,6 +15,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
     public DbSet<AgentCredentialRecord> AgentCredentials => Set<AgentCredentialRecord>();
     public DbSet<AgentProjectAccessRecord> AgentProjectAccess => Set<AgentProjectAccessRecord>();
     public DbSet<ProductApiKeyRecord> ProductApiKeys => Set<ProductApiKeyRecord>();
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<ConversationEntry> ConversationEntries => Set<ConversationEntry>();
 
@@ -88,7 +89,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         productKey.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
 
         var ticket = modelBuilder.Entity<Ticket>();
-        ticket.ToTable("tickets");
+        ticket.ToTable("tickets", table => table.HasCheckConstraint("CK_tickets_Version_Positive", "\"Version\" >= 1"));
         ticket.HasKey(value => value.Id);
         ticket.Property(value => value.Number).HasMaxLength(32);
         ticket.HasIndex(value => value.Number).IsUnique();
@@ -98,6 +99,8 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         ticket.Property(value => value.RequesterEmail).HasColumnName("requester_email").HasMaxLength(320);
         ticket.Property(value => value.Priority).HasConversion<string>().HasMaxLength(32);
         ticket.Property(value => value.Status).HasConversion<string>().HasMaxLength(32);
+        ticket.Property(value => value.Version).IsConcurrencyToken();
+        ticket.HasIndex(value => new { value.Status, value.Priority, value.WaitingSince, value.Id });
         ticket.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Restrict);
         ticket.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.AssigneeUserId).OnDelete(DeleteBehavior.SetNull);
         ticket.HasMany(value => value.Conversation).WithOne().HasForeignKey(value => value.TicketId).OnDelete(DeleteBehavior.Cascade);
@@ -110,5 +113,15 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         entry.HasIndex(value => new { value.TicketId, value.Sequence }).IsUnique();
         entry.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.ActorUserId).OnDelete(DeleteBehavior.Restrict);
         entry.HasOne<AgentCredentialRecord>().WithMany().HasForeignKey(value => value.ActingAgentCredentialId).OnDelete(DeleteBehavior.Restrict);
+
+        var idempotency = modelBuilder.Entity<IdempotencyRecord>();
+        idempotency.ToTable("idempotency_records");
+        idempotency.HasKey(value => new { value.CredentialKind, value.CredentialId, value.Key });
+        idempotency.Property(value => value.CredentialKind).HasMaxLength(16);
+        idempotency.Property(value => value.Key).HasMaxLength(200);
+        idempotency.Property(value => value.RequestHash).HasMaxLength(64);
+        idempotency.Property(value => value.ResponseETag).HasMaxLength(32);
+        idempotency.Property(value => value.ResponseBody);
+        idempotency.HasIndex(value => value.ExpiresAt);
     }
 }

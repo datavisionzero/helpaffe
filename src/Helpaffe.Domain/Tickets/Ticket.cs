@@ -39,9 +39,11 @@ public sealed class Ticket
             RequesterEmail = requesterEmail.Trim(),
             Status = TicketStatus.Open,
             Priority = TicketPriority.Normal,
+            Version = 1,
             CreatedAt = createdAt,
             UpdatedAt = createdAt,
             LastCustomerReplyAt = createdAt,
+            WaitingSince = createdAt,
         };
         ticket._conversation.Add(new ConversationEntry(
             initialEntryId ?? Guid.NewGuid(), ticket.Id, 1, ConversationEntryKind.CustomerMessage, initialMessage, createdAt));
@@ -58,9 +60,11 @@ public sealed class Ticket
     public Guid? AssigneeUserId { get; private set; }
     public TicketPriority Priority { get; private set; }
     public TicketStatus Status { get; private set; }
+    public int Version { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
     public DateTimeOffset LastCustomerReplyAt { get; private set; }
+    public DateTimeOffset WaitingSince { get; private set; }
     public IReadOnlyCollection<ConversationEntry> Conversation => _conversation.AsReadOnly();
 
     public void AddCustomerMessage(Guid entryId, string body, DateTimeOffset createdAt)
@@ -70,6 +74,7 @@ public sealed class Ticket
         if (Status is TicketStatus.WaitingForCustomer or TicketStatus.Resolved)
             ChangeStatusCore(TicketStatus.Open, createdAt, null, null, "Customer reply reopened the ticket.");
         UpdatedAt = createdAt;
+        Version++;
     }
 
     public void AddPublicReply(
@@ -85,6 +90,7 @@ public sealed class Ticket
         AddEntry(entryId, ConversationEntryKind.PublicReply, body, createdAt, actorUserId, actingAgentCredentialId);
         ChangeStatusCore(resultingStatus, createdAt, actorUserId, actingAgentCredentialId, $"Status changed to {resultingStatus}.");
         UpdatedAt = createdAt;
+        Version++;
     }
 
     public void AddInternalNote(
@@ -96,6 +102,7 @@ public sealed class Ticket
     {
         AddEntry(entryId, ConversationEntryKind.InternalNote, body, createdAt, actorUserId, actingAgentCredentialId);
         UpdatedAt = createdAt;
+        Version++;
     }
 
     public void ChangeStatus(
@@ -104,8 +111,11 @@ public sealed class Ticket
         Guid? actingAgentCredentialId,
         DateTimeOffset changedAt)
     {
-        ChangeStatusCore(status, changedAt, actorUserId, actingAgentCredentialId, $"Status changed to {status}.");
-        UpdatedAt = changedAt;
+        if (ChangeStatusCore(status, changedAt, actorUserId, actingAgentCredentialId, $"Status changed to {status}."))
+        {
+            UpdatedAt = changedAt;
+            Version++;
+        }
     }
 
     public void ChangePriority(
@@ -114,10 +124,11 @@ public sealed class Ticket
         Guid? actingAgentCredentialId,
         DateTimeOffset changedAt)
     {
-        if (Priority == priority) return;
-        Priority = priority;
-        AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent, $"Priority changed to {priority}.", changedAt, actorUserId, actingAgentCredentialId);
-        UpdatedAt = changedAt;
+        if (ChangePriorityCore(priority, actorUserId, actingAgentCredentialId, changedAt))
+        {
+            UpdatedAt = changedAt;
+            Version++;
+        }
     }
 
     public void Assign(
@@ -127,23 +138,75 @@ public sealed class Ticket
         DateTimeOffset changedAt)
     {
         if (assigneeUserId == Guid.Empty) throw new ArgumentException("An assignee id cannot be empty.", nameof(assigneeUserId));
-        if (AssigneeUserId == assigneeUserId) return;
-        AssigneeUserId = assigneeUserId;
-        var description = assigneeUserId is null ? "Ticket unassigned." : "Ticket assigned to a support user.";
-        AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent, description, changedAt, actorUserId, actingAgentCredentialId);
-        UpdatedAt = changedAt;
+        if (AssignCore(assigneeUserId, actorUserId, actingAgentCredentialId, changedAt))
+        {
+            UpdatedAt = changedAt;
+            Version++;
+        }
     }
 
-    private void ChangeStatusCore(
+    public void Update(
+        TicketStatus? status,
+        TicketPriority? priority,
+        bool changeAssignee,
+        Guid? assigneeUserId,
+        Guid actorUserId,
+        Guid? actingAgentCredentialId,
+        DateTimeOffset changedAt)
+    {
+        if (changeAssignee && assigneeUserId == Guid.Empty)
+            throw new ArgumentException("An assignee id cannot be empty.", nameof(assigneeUserId));
+        var changed = false;
+        if (status is not null)
+            changed |= ChangeStatusCore(status.Value, changedAt, actorUserId, actingAgentCredentialId, $"Status changed to {status.Value}.");
+        if (priority is not null)
+            changed |= ChangePriorityCore(priority.Value, actorUserId, actingAgentCredentialId, changedAt);
+        if (changeAssignee)
+            changed |= AssignCore(assigneeUserId, actorUserId, actingAgentCredentialId, changedAt);
+        if (changed)
+        {
+            UpdatedAt = changedAt;
+            Version++;
+        }
+    }
+
+    private bool ChangeStatusCore(
         TicketStatus status,
         DateTimeOffset changedAt,
         Guid? actorUserId,
         Guid? actingAgentCredentialId,
         string description)
     {
-        if (Status == status) return;
+        if (Status == status) return false;
         Status = status;
+        if (status is TicketStatus.Open) WaitingSince = changedAt;
         AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent, description, changedAt, actorUserId, actingAgentCredentialId);
+        return true;
+    }
+
+    private bool ChangePriorityCore(
+        TicketPriority priority,
+        Guid actorUserId,
+        Guid? actingAgentCredentialId,
+        DateTimeOffset changedAt)
+    {
+        if (Priority == priority) return false;
+        Priority = priority;
+        AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent, $"Priority changed to {priority}.", changedAt, actorUserId, actingAgentCredentialId);
+        return true;
+    }
+
+    private bool AssignCore(
+        Guid? assigneeUserId,
+        Guid actorUserId,
+        Guid? actingAgentCredentialId,
+        DateTimeOffset changedAt)
+    {
+        if (AssigneeUserId == assigneeUserId) return false;
+        AssigneeUserId = assigneeUserId;
+        var description = assigneeUserId is null ? "Ticket unassigned." : "Ticket assigned to a support user.";
+        AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent, description, changedAt, actorUserId, actingAgentCredentialId);
+        return true;
     }
 
     private void AddEntry(

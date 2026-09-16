@@ -84,6 +84,8 @@ public sealed class TicketPersistenceTests : IAsyncLifetime
             Assert.Equal(adminId, ticket.AssigneeUserId);
             Assert.Equal(TicketPriority.Urgent, ticket.Priority);
             Assert.Equal(TicketStatus.Open, ticket.Status);
+            Assert.Equal(6, ticket.Version);
+            Assert.Equal(new DateTimeOffset(2026, 9, 16, 12, 5, 0, TimeSpan.Zero), ticket.WaitingSince);
             Assert.Equal(8, ticket.Conversation.Count);
             Assert.Equal(Enumerable.Range(1, 8), ticket.Conversation.OrderBy(value => value.Sequence).Select(value => value.Sequence));
             var note = Assert.Single(ticket.Conversation, value => value.Kind is ConversationEntryKind.InternalNote);
