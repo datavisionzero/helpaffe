@@ -1,0 +1,46 @@
+using Helpaffe.Api.Hosting;
+using Helpaffe.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+var builder = WebApplication.CreateBuilder(args);
+var connectionString = builder.Configuration.GetConnectionString("Database")
+    ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
+
+builder.Services.AddDbContextFactory<HelpaffeDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    .AddCheck<DatabaseHealthCheck>("postgresql", tags: ["ready"]);
+
+var app = builder.Build();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    await using var database = await scope.ServiceProvider
+        .GetRequiredService<IDbContextFactory<HelpaffeDbContext>>()
+        .CreateDbContextAsync();
+    await database.Database.MigrateAsync();
+}
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("live"),
+});
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready"),
+});
+
+app.MapGet("/api/backoffice/version", () => Results.Ok(new
+{
+    version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
+}));
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
+
+await app.RunAsync();
+
+public partial class Program;

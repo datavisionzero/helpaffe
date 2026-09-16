@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+:root {
+  color: #e8f1ed;
+  background: #101a17;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 20rem;
+  min-height: 100vh;
+}
+
+.shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 76% 18%, rgb(67 133 106 / 24%), transparent 30rem),
+    #101a17;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #2b3c35;
+  padding: 1rem clamp(1.5rem, 5vw, 5rem);
+}
+
+.wordmark,
+.state,
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.wordmark {
+  color: #f2a65a;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.state,
+.eyebrow {
+  color: #8fb8a7;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.welcome {
+  max-width: 52rem;
+  padding: clamp(6rem, 18vh, 12rem) clamp(1.5rem, 9vw, 9rem);
+}
+
+.welcome h1 {
+  max-width: 13ch;
+  margin: 0.6rem 0 1.2rem;
+  color: #f4f7f5;
+  font-size: clamp(3rem, 8vw, 6.5rem);
+  font-weight: 600;
+  letter-spacing: -0.055em;
+  line-height: 0.94;
+}
+
+.welcome p:last-child {
+  max-width: 40rem;
+  color: #aebdb7;
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  line-height: 1.65;
+}

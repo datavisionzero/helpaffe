@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Helpaffe.Domain/Helpaffe.Domain.csproj" />
+  </ItemGroup>
+</Project>

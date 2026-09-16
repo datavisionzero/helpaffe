@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: .NET
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet tool restore
+      - run: dotnet restore Helpaffe.slnx
+      - run: dotnet build Helpaffe.slnx -c Release --no-restore
+      - run: dotnet test tests/Helpaffe.UnitTests -c Release --no-build
+      - run: dotnet test tests/Helpaffe.IntegrationTests -c Release --no-build
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  cli:
+    name: CLI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/cli
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/cli/go.mod
+          cache-dependency-path: src/cli/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./cmd/helpaffe
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    needs: [dotnet, web, cli]
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -f deploy/Dockerfile -t helpaffe:test .

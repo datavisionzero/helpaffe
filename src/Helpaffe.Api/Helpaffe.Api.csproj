@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>helpaffe</AssemblyName>
+    <RootNamespace>Helpaffe.Api</RootNamespace>
+    <UserSecretsId>helpaffe-api</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Helpaffe.Application/Helpaffe.Application.csproj" />
+    <ProjectReference Include="../Helpaffe.Infrastructure/Helpaffe.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

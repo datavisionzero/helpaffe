@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Helpaffe.Api/Helpaffe.Api.csproj" />
+    <Project Path="src/Helpaffe.Application/Helpaffe.Application.csproj" />
+    <Project Path="src/Helpaffe.Domain/Helpaffe.Domain.csproj" />
+    <Project Path="src/Helpaffe.Infrastructure/Helpaffe.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Helpaffe.IntegrationTests/Helpaffe.IntegrationTests.csproj" />
+    <Project Path="tests/Helpaffe.UnitTests/Helpaffe.UnitTests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,13 @@
+.DS_Store
+.env
+bin/
+obj/
+TestResults/
+src/Helpaffe.Api/wwwroot/
+src/web/dist/
+src/web/node_modules/
+src/web/*.tsbuildinfo
+src/web/vite.config.d.ts
+src/web/vite.config.js
+src/cli/helpaffe
+coverage/

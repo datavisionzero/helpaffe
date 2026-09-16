@@ -1,0 +1,9 @@
+.git
+.github
+.planaffe
+**/bin
+**/obj
+**/node_modules
+**/dist
+TestResults
+docs/planning
