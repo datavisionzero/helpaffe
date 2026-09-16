@@ -39,6 +39,13 @@ public sealed class SupportApiTests : IAsyncLifetime
         await Grant(admin, support, firstProject);
         var supportAgent = await CreateAgent(admin, factory, support, "Support agent");
         var adminAgent = await CreateAgent(admin, factory, null, "Administrator agent");
+        var assignees = await Read(await supportAgent.GetAsync(
+            $"/api/backoffice/assignees?project_id={firstProject}",
+            TestContext.Current.CancellationToken));
+        Assert.Contains(assignees.EnumerateArray(), value => value.GetProperty("id").GetGuid() == support);
+        Assert.DoesNotContain(assignees.EnumerateArray(), value => value.GetProperty("id").GetGuid() == otherSupport);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await supportAgent.GetAsync($"/api/backoffice/assignees?project_id={secondProject}", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.OK,
             (await PatchJson(adminAgent, $"/api/backoffice/projects/{firstProject}", new { name = "First product renamed" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,

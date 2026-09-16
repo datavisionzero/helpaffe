@@ -199,6 +199,7 @@ operations are:
 
 | Method and path | Purpose |
 | --- | --- |
+| `GET /api/backoffice/assignees` | List active support users eligible in the visible project scope, optionally for one project |
 | `GET /api/backoffice/tickets` | Filter visible tickets by status, priority, project, assignee, `mine`, or text search with a bound cursor |
 | `GET /api/backoffice/tickets/{number}` | Read the requester, complete conversation, actor attribution, and project support instructions together |
 | `POST /api/backoffice/tickets/next` | Atomically assign and start the urgent-first, longest-waiting eligible Open ticket |
@@ -210,8 +211,10 @@ operations are:
 
 Ticket resources outside the caller's current human-and-agent project
 intersection return `not-found`. An assignee must be active and currently able
-to access the ticket's project. `mine=true` means tickets assigned to the human
-user, including work performed for that user by any of their named agents.
+to access the ticket's project. The assignee lookup applies the same project
+visibility and eligibility rules without exposing account administration.
+`mine=true` means tickets assigned to the human user, including work performed
+for that user by any of their named agents.
 
 `next` considers only Open tickets that are unassigned or already assigned to
 the responsible human. It orders Urgent before Normal, then by `waiting_since`;

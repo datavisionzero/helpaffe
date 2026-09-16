@@ -16,6 +16,7 @@ public static class TicketRoutes
     public static IEndpointRouteBuilder MapTickets(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/backoffice");
+        group.MapGet("/assignees", ListAssignees);
         group.MapGet("/tickets", ListTickets);
         group.MapPost("/tickets/next", AcquireNextTicket);
         group.MapGet("/tickets/{number}", GetTicket);
@@ -25,6 +26,29 @@ public static class TicketRoutes
         group.MapGet("/projects/{projectId:guid}/support-instructions", GetSupportInstructions);
         group.MapPut("/projects/{projectId:guid}/support-instructions", UpdateSupportInstructions);
         return endpoints;
+    }
+
+    private static async Task<IResult> ListAssignees(
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory,
+        Guid? project_id = null)
+    {
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var visibleProjectIds = await context.VisibleProjects(database)
+            .Select(value => value.Id)
+            .ToArrayAsync(context.RequestAborted);
+        if (project_id is { } projectId && !visibleProjectIds.Contains(projectId))
+            return ProjectNotFound();
+
+        var eligibleProjectIds = project_id is { } selectedProjectId ? [selectedProjectId] : visibleProjectIds;
+        var assignees = await database.Users.AsNoTracking()
+            .Where(user => eligibleProjectIds.Length > 0 && user.IsActive &&
+                (user.Role == UserRole.Administrator || database.UserProjectAccess.Any(access =>
+                    access.UserId == user.Id && eligibleProjectIds.Contains(access.ProjectId))))
+            .OrderBy(user => user.Name)
+            .Select(user => new { user.Id, user.Name })
+            .ToListAsync(context.RequestAborted);
+        return Results.Ok(assignees);
     }
 
     private static async Task<IResult> ListTickets(

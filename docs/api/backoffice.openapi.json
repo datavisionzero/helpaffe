@@ -8,6 +8,20 @@
   "servers": [{ "url": "/api/backoffice" }],
   "security": [{ "browserSession": [] }, { "agentToken": [] }],
   "paths": {
+    "/assignees": {
+      "get": {
+        "operationId": "listAssignees",
+        "summary": "List active support users eligible in the caller's visible project scope",
+        "parameters": [
+          { "name": "project_id", "in": "query", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Eligible assignees", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Assignee" } } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/tickets": {
       "get": {
         "operationId": "listTickets",
@@ -191,6 +205,15 @@
       },
       "UserSummary": {
         "type": ["object", "null"],
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "Assignee": {
+        "type": "object",
         "required": ["id", "name"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
