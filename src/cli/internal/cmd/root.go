@@ -95,9 +95,14 @@ func ExitCode(err error) int {
 
 func PrintError(root *cobra.Command, output io.Writer, err error) {
 	var api *apiError
+	var waitTimeout *waitTimeoutError
 	jsonOutput, _ := root.Flags().GetBool("json")
 	if errors.As(err, &api) && jsonOutput && len(api.body) > 0 {
 		fmt.Fprintf(output, "%s\n", api.body)
+		return
+	}
+	if errors.As(err, &waitTimeout) && jsonOutput && len(waitTimeout.body) > 0 {
+		fmt.Fprintf(output, "%s\n", waitTimeout.body)
 		return
 	}
 	if jsonOutput {

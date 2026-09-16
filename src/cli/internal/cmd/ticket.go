@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +17,7 @@ func (app *application) newTicketCommand() *cobra.Command {
 		app.newTicketGetCommand(),
 		app.newTicketRequesterTicketsCommand(),
 		app.newTicketNextCommand(),
+		app.newTicketWaitCommand(),
 		app.newTicketReplyCommand(),
 		app.newTicketNoteCommand(),
 		app.newTicketUpdateCommand(),
@@ -27,6 +29,57 @@ func (app *application) newTicketCommand() *cobra.Command {
 		app.newTicketNotificationCommand(),
 	)
 	return ticket
+}
+
+type waitTimeoutError struct {
+	body []byte
+}
+
+func (err *waitTimeoutError) Error() string {
+	return "no ticket work became available before the timeout"
+}
+func (err *waitTimeoutError) Unwrap() error { return &exitError{code: 11, message: err.Error()} }
+
+func (app *application) newTicketWaitCommand() *cobra.Command {
+	var project, cursor string
+	var timeout int
+	command := &cobra.Command{
+		Use:   "wait",
+		Short: "Wait for an open ticket or a new customer reply without acquiring it",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if timeout < 1 || timeout > 60 {
+				return &exitError{code: 2, message: "--timeout must be between 1 and 60 seconds"}
+			}
+			query := url.Values{}
+			setQuery(query, "project_id", project)
+			setQuery(query, "cursor", cursor)
+			query.Set("timeout_seconds", strconv.Itoa(timeout))
+			client, err := app.apiClient()
+			if err != nil {
+				return err
+			}
+			client.http.Timeout = time.Duration(timeout+5) * time.Second
+			body, _, err := client.request(http.MethodGet, "/api/backoffice/tickets/wait?"+query.Encode(), nil, 0, "")
+			if err != nil {
+				return err
+			}
+			var result struct {
+				TimedOut bool `json:"timed_out"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil {
+				return &exitError{code: 1, message: "server returned invalid ticket wait JSON"}
+			}
+			if result.TimedOut {
+				return &waitTimeoutError{body: body}
+			}
+			return app.write(command, body)
+		},
+	}
+	command.Flags().StringVar(&project, "project", "", "limit waiting to one project id")
+	command.Flags().IntVar(&timeout, "timeout", 20, "server wait timeout in seconds (1 to 60)")
+	command.Flags().StringVar(&cursor, "cursor", "", "opaque cursor from the previous wait result")
+	return command
 }
 
 func (app *application) newTicketReferenceCommand() *cobra.Command {

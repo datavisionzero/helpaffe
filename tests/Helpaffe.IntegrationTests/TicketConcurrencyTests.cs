@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Helpaffe.Api.Hosting;
 using Helpaffe.Domain.Tickets;
 using Helpaffe.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
@@ -89,6 +90,84 @@ public sealed class TicketConcurrencyTests : IAsyncLifetime
         Assert.Single(responses, value => value.StatusCode == HttpStatusCode.OK);
         var stale = Assert.Single(responses, value => value.StatusCode == HttpStatusCode.PreconditionFailed);
         Assert.Equal(2, (await Read(stale)).GetProperty("current_version").GetInt32());
+    }
+
+    [Fact]
+    public async Task Ticket_wait_broadcasts_work_preserves_cursor_scope_and_observes_cancellation()
+    {
+        await using var factory = CreateFactory();
+        using var admin = await SignIn(factory);
+        var project = await CreateProject(admin);
+        var support = await CreateSupport(admin);
+        await Grant(admin, support, project);
+        using var agent = await CreateAgent(admin, factory, support, "Waiting agent");
+        await SeedTicket(factory, project, "HLP-WAIT", TicketPriority.Urgent, DateTimeOffset.UtcNow);
+        var initiallyAcquired = await Acquire(agent, project, "initial-wait-ticket-acquisition");
+        var initiallyAcquiredVersion = (await Read(initiallyAcquired)).GetProperty("summary").GetProperty("version").GetInt32();
+
+        var initialTimeout = await WaitForWork(agent, project, 1, null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, initialTimeout.StatusCode);
+        var initialDocument = await Read(initialTimeout);
+        Assert.True(initialDocument.GetProperty("timed_out").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, initialDocument.GetProperty("work").ValueKind);
+        var cursor = initialDocument.GetProperty("cursor").GetString()!;
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await WaitForWork(agent, null, 1, cursor, TestContext.Current.CancellationToken)).StatusCode);
+
+        var firstWaiter = WaitForWork(agent, project, 5, cursor, TestContext.Current.CancellationToken);
+        var secondWaiter = WaitForWork(agent, project, 5, cursor, TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        var reopened = await TicketPatch(agent, "HLP-WAIT", new { status = "open" }, initiallyAcquiredVersion);
+        Assert.Equal(HttpStatusCode.OK, reopened.StatusCode);
+
+        var awakened = await Task.WhenAll(firstWaiter, secondWaiter);
+        Assert.All(awakened, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+        var awakenedDocuments = await Task.WhenAll(awakened.Select(Read));
+        Assert.All(awakenedDocuments, document =>
+        {
+            Assert.False(document.GetProperty("timed_out").GetBoolean());
+            Assert.Equal("open_ticket", document.GetProperty("work").GetProperty("kind").GetString());
+            Assert.Equal("HLP-WAIT", document.GetProperty("work").GetProperty("ticket").GetProperty("number").GetString());
+        });
+
+        var acquired = await Acquire(agent, project, "acquire-wait-ticket");
+        Assert.Equal(HttpStatusCode.OK, acquired.StatusCode);
+        var afterAcquire = await WaitForWork(agent, project, 1,
+            awakenedDocuments[0].GetProperty("cursor").GetString(), TestContext.Current.CancellationToken);
+        var afterAcquireDocument = await Read(afterAcquire);
+        Assert.True(afterAcquireDocument.GetProperty("timed_out").GetBoolean());
+
+        var replyWaiter = WaitForWork(agent, project, 5,
+            afterAcquireDocument.GetProperty("cursor").GetString(), TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        await using (var database = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<HelpaffeDbContext>>()
+            .CreateDbContextAsync(TestContext.Current.CancellationToken))
+        {
+            var ticket = await database.Tickets.Include(value => value.Conversation)
+                .SingleAsync(value => value.Number == "HLP-WAIT", TestContext.Current.CancellationToken);
+            var existingEntries = ticket.Conversation.Count;
+            ticket.AddCustomerMessage(Guid.NewGuid(), "One more detail", DateTimeOffset.UtcNow);
+            database.ConversationEntries.AddRange(ticket.Conversation.OrderBy(value => value.Sequence).Skip(existingEntries));
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        factory.Services.GetRequiredService<TicketWorkNotifier>().Signal();
+
+        var replyDocument = await Read(await replyWaiter);
+        Assert.Equal("customer_reply", replyDocument.GetProperty("work").GetProperty("kind").GetString());
+        Assert.Equal("HLP-WAIT", replyDocument.GetProperty("work").GetProperty("ticket").GetProperty("number").GetString());
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => WaitForWork(
+            agent, project, 5, replyDocument.GetProperty("cursor").GetString(), cancellation.Token));
+
+        var fallbackWaiter = WaitForWork(agent, project, 3,
+            replyDocument.GetProperty("cursor").GetString(), TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        await SeedTicket(factory, project, "HLP-FALLBACK", TicketPriority.Normal, DateTimeOffset.UtcNow);
+        var fallbackDocument = await Read(await fallbackWaiter);
+        Assert.Equal("open_ticket", fallbackDocument.GetProperty("work").GetProperty("kind").GetString());
+        Assert.Equal("HLP-FALLBACK", fallbackDocument.GetProperty("work").GetProperty("ticket").GetProperty("number").GetString());
     }
 
     private WebApplicationFactory<Program> CreateFactory() => new WebApplicationFactory<Program>()
@@ -192,6 +271,19 @@ public sealed class TicketConcurrencyTests : IAsyncLifetime
         };
         request.Headers.Add("Idempotency-Key", key);
         return client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    private static Task<HttpResponseMessage> WaitForWork(
+        HttpClient client,
+        Guid? projectId,
+        int timeoutSeconds,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        var query = new List<string> { $"timeout_seconds={timeoutSeconds}" };
+        if (projectId is not null) query.Add($"project_id={projectId}");
+        if (cursor is not null) query.Add($"cursor={Uri.EscapeDataString(cursor)}");
+        return client.GetAsync($"/api/backoffice/tickets/wait?{string.Join('&', query)}", cancellationToken);
     }
 
     private static Task<HttpResponseMessage> TicketPatch(HttpClient client, string number, object body, int version)

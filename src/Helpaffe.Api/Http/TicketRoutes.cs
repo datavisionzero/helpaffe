@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Helpaffe.Domain.Identity;
 using Helpaffe.Domain.Tickets;
+using Helpaffe.Api.Hosting;
 using Helpaffe.Infrastructure.Identity;
 using Helpaffe.Infrastructure.Notifications;
 using Helpaffe.Infrastructure.Persistence;
@@ -19,6 +20,7 @@ public static class TicketRoutes
         var group = endpoints.MapGroup("/api/backoffice");
         group.MapGet("/assignees", ListAssignees);
         group.MapGet("/tickets", ListTickets);
+        group.MapGet("/tickets/wait", WaitForTicketWork);
         group.MapPost("/tickets/next", AcquireNextTicket);
         group.MapGet("/tickets/{number}", GetTicket);
         group.MapGet("/tickets/{number}/requester-tickets", ListRequesterTickets);
@@ -134,6 +136,117 @@ public static class TicketRoutes
         return Results.Ok(await TicketDetail(ticket, database, context.RequestAborted));
     }
 
+    private static async Task<IResult> WaitForTicketWork(
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory,
+        TicketWorkNotifier workNotifier,
+        TimeProvider timeProvider,
+        Guid? project_id = null,
+        int timeout_seconds = 20,
+        string? cursor = null)
+    {
+        if (timeout_seconds is < 1 or > 60)
+            return Problem(400, "validation", "Timeout seconds must be between 1 and 60.");
+        await using (var database = await factory.CreateDbContextAsync(context.RequestAborted))
+        {
+            if (project_id is { } projectId && !await context.VisibleProjects(database)
+                    .AnyAsync(value => value.Id == projectId, context.RequestAborted))
+                return ProjectNotFound();
+        }
+
+        var signature = WaitCursorSignature(context.Actor()!, project_id);
+        var startedAt = timeProvider.GetUtcNow();
+        var since = startedAt;
+        if (!string.IsNullOrWhiteSpace(cursor) && !TryWaitCursor(cursor, signature, out since))
+            return Problem(400, "cursor-invalid", "The cursor does not belong to this ticket wait.");
+        var deadline = startedAt.AddSeconds(timeout_seconds);
+        var boundary = startedAt;
+
+        while (true)
+        {
+            var observedVersion = workNotifier.Version;
+            boundary = timeProvider.GetUtcNow();
+            var work = await FindTicketWork(context, factory, project_id, since, boundary);
+            if (work is not null)
+            {
+                return Results.Ok(new
+                {
+                    work,
+                    cursor = EncodeWaitCursor(boundary, signature),
+                    timed_out = false,
+                });
+            }
+
+            var remaining = deadline - timeProvider.GetUtcNow();
+            if (remaining <= TimeSpan.Zero)
+            {
+                return Results.Ok(new
+                {
+                    work = (object?)null,
+                    cursor = EncodeWaitCursor(boundary, signature),
+                    timed_out = true,
+                });
+            }
+
+            await workNotifier.WaitForChangeAsync(
+                observedVersion,
+                remaining < TimeSpan.FromSeconds(1) ? remaining : TimeSpan.FromSeconds(1),
+                context.RequestAborted);
+        }
+    }
+
+    private static async Task<object?> FindTicketWork(
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory,
+        Guid? projectId,
+        DateTimeOffset since,
+        DateTimeOffset boundary)
+    {
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var visibleProjectIds = await context.VisibleProjects(database).Select(value => value.Id)
+            .ToArrayAsync(context.RequestAborted);
+        var projectIds = projectId is { } selected && visibleProjectIds.Contains(selected)
+            ? [selected]
+            : projectId is null ? visibleProjectIds : [];
+        if (projectIds.Length == 0) return null;
+
+        var ticket = await database.Tickets.AsNoTracking()
+            .Where(value => projectIds.Contains(value.ProjectId) &&
+                value.LastCustomerReplyAt > value.CreatedAt &&
+                value.LastCustomerReplyAt > since && value.LastCustomerReplyAt <= boundary)
+            .OrderBy(value => value.LastCustomerReplyAt)
+            .ThenBy(value => value.Id)
+            .FirstOrDefaultAsync(context.RequestAborted);
+        var kind = "customer_reply";
+        if (ticket is null)
+        {
+            var userId = context.User()!.Id;
+            ticket = await database.Tickets.AsNoTracking()
+                .Where(value => projectIds.Contains(value.ProjectId) &&
+                    value.Status == TicketStatus.Open &&
+                    (value.SnoozedUntil == null || value.SnoozedUntil <= boundary) &&
+                    (value.AssigneeUserId == null || value.AssigneeUserId == userId))
+                .OrderBy(value => value.Priority == TicketPriority.Urgent ? 0 : 1)
+                .ThenBy(value => value.WaitingSince)
+                .ThenBy(value => value.Id)
+                .FirstOrDefaultAsync(context.RequestAborted);
+            kind = "open_ticket";
+        }
+        if (ticket is null) return null;
+
+        var project = await database.Projects.AsNoTracking()
+            .SingleAsync(value => value.Id == ticket.ProjectId, context.RequestAborted);
+        var assignee = ticket.AssigneeUserId is { } assigneeId
+            ? await database.Users.AsNoTracking().SingleOrDefaultAsync(value => value.Id == assigneeId, context.RequestAborted)
+            : null;
+        return new
+        {
+            kind,
+            ticket = TicketSummary(ticket, project, assignee),
+            customer_reply_at = kind == "customer_reply" ? ticket.LastCustomerReplyAt : (DateTimeOffset?)null,
+        };
+    }
+
     private static async Task<IResult> ListRequesterTickets(
         string number,
         HttpContext context,
@@ -220,6 +333,7 @@ public static class TicketRoutes
         var ticket = await database.Tickets.Include(value => value.Conversation)
             .AsSplitQuery()
             .SingleAsync(value => value.Id == candidateId, context.RequestAborted);
+        var expectedVersion = ticket.Version;
         var existingEntryCount = ticket.Conversation.Count;
         ticket.Update(
             TicketStatus.InProgress,
@@ -233,7 +347,7 @@ public static class TicketRoutes
         var detail = await TicketDetail(ticket, database, context.RequestAborted);
         var body = JsonSerializer.Serialize(detail, JsonOptions(context));
         AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
-        var saveError = await SaveTicket(database, ticket.Id, context.RequestAborted);
+        var saveError = await SaveTicket(database, ticket.Id, expectedVersion, context.RequestAborted);
         if (saveError is not null)
         {
             await transaction.RollbackAsync(context.RequestAborted);
@@ -306,7 +420,8 @@ public static class TicketRoutes
         string number,
         UpdateTicketRequest request,
         HttpContext context,
-        IDbContextFactory<HelpaffeDbContext> factory)
+        IDbContextFactory<HelpaffeDbContext> factory,
+        TicketWorkNotifier workNotifier)
     {
         if (!TryStatus(request.Status, out var status)) return Problem(400, "validation", "The ticket status is invalid.");
         if (!TryPriority(request.Priority, out var priority)) return Problem(400, "validation", "The ticket priority is invalid.");
@@ -316,6 +431,7 @@ public static class TicketRoutes
         var ticket = await LoadVisibleTicket(number, context, database);
         if (ticket is null) return NotFound();
         if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
+        var expectedVersion = ticket.Version;
         if (request.AssigneeId is { } assigneeId && !await IsEligibleAssignee(database, assigneeId, ticket.ProjectId, context.RequestAborted))
             return Problem(400, "validation", "The assignee must be an active user with access to the ticket's project.");
 
@@ -338,8 +454,9 @@ public static class TicketRoutes
             var assignmentProject = await database.Projects.AsNoTracking().SingleAsync(value => value.Id == ticket.ProjectId, context.RequestAborted);
             NotificationOutbox.AddAssignment(database, ticket, assignmentProject, assignedUser, changedAt);
         }
-        var saveError = await SaveTicket(database, ticket.Id, context.RequestAborted);
+        var saveError = await SaveTicket(database, ticket.Id, expectedVersion, context.RequestAborted);
         if (saveError is not null) return saveError;
+        workNotifier.Signal();
         context.Response.Headers.ETag = ETag(ticket.Version);
         return Results.Ok(await TicketDetail(ticket, database, context.RequestAborted));
     }
@@ -348,7 +465,8 @@ public static class TicketRoutes
         string number,
         SetSnoozeRequest request,
         HttpContext context,
-        IDbContextFactory<HelpaffeDbContext> factory)
+        IDbContextFactory<HelpaffeDbContext> factory,
+        TicketWorkNotifier workNotifier)
     {
         var actor = context.Actor()!;
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
@@ -371,6 +489,7 @@ public static class TicketRoutes
         AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
         var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
         if (saveError is not null) return saveError;
+        workNotifier.Signal();
         return StoredJson(context, 200, body, ETag(ticket.Version));
     }
 
@@ -516,7 +635,11 @@ public static class TicketRoutes
         return true;
     }
 
-    private static async Task<IResult?> SaveTicket(HelpaffeDbContext database, Guid ticketId, CancellationToken cancellationToken)
+    private static async Task<IResult?> SaveTicket(
+        HelpaffeDbContext database,
+        Guid ticketId,
+        int expectedVersion,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -531,6 +654,16 @@ public static class TicketRoutes
                 .Select(value => value.Version)
                 .SingleAsync(cancellationToken);
             return Stale(currentVersion);
+        }
+        catch (DbUpdateException) when (database.Database.CurrentTransaction is null)
+        {
+            database.ChangeTracker.Clear();
+            var currentVersion = await database.Tickets.AsNoTracking()
+                .Where(value => value.Id == ticketId)
+                .Select(value => value.Version)
+                .SingleAsync(cancellationToken);
+            if (currentVersion != expectedVersion) return Stale(currentVersion);
+            throw;
         }
     }
 
@@ -833,6 +966,40 @@ public static class TicketRoutes
         var source = string.Join('|', "requester-tickets", actor.User.Id, actor.Agent?.Id, sourceTicket.Id,
             sourceTicket.ProjectId, sourceTicket.RequesterExternalId, status);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..16];
+    }
+
+    private static string WaitCursorSignature(BackofficeActor actor, Guid? projectId)
+    {
+        var source = string.Join('|', "ticket-wait", actor.User.Id, actor.Agent?.Id, projectId);
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..16];
+    }
+
+    private static string EncodeWaitCursor(DateTimeOffset timestamp, string signature)
+    {
+        var source = $"{timestamp.UtcTicks}:{signature}";
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(source)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static bool TryWaitCursor(string cursor, string signature, out DateTimeOffset timestamp)
+    {
+        timestamp = default;
+        try
+        {
+            var normalized = cursor.Replace('-', '+').Replace('_', '/');
+            normalized = normalized.PadRight(normalized.Length + (4 - normalized.Length % 4) % 4, '=');
+            var parts = Encoding.UTF8.GetString(Convert.FromBase64String(normalized)).Split(':');
+            if (parts.Length != 2 || parts[1] != signature || !long.TryParse(parts[0], out var ticks)) return false;
+            timestamp = new DateTimeOffset(ticks, TimeSpan.Zero);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     private static string EncodeCursor(Ticket ticket, string signature)

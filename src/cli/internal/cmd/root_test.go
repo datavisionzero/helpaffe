@@ -216,6 +216,46 @@ func TestTicketReferenceRemoveUsesDeleteWithoutBody(t *testing.T) {
 	}
 }
 
+func TestTicketWaitForwardsScopeAndCursorAndUsesStableTimeoutExit(t *testing.T) {
+	const timeoutBody = `{"work":null,"cursor":"next-cursor","timed_out":true}`
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/wait"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if got, want := request.URL.Query().Get("project_id"), "018f6b45-9e25-7def-a000-112233445566"; got != want {
+			t.Errorf("project_id = %q, want %q", got, want)
+		}
+		if got, want := request.URL.Query().Get("cursor"), "opaque+/cursor"; got != want {
+			t.Errorf("cursor = %q, want %q", got, want)
+		}
+		if got, want := request.URL.Query().Get("timeout_seconds"), "3"; got != want {
+			t.Errorf("timeout_seconds = %q, want %q", got, want)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, timeoutBody)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	root := New("1.2.3")
+	var output bytes.Buffer
+	err := ExecuteForTest(root, &output, "--json", "ticket", "wait", "--project", "018f6b45-9e25-7def-a000-112233445566",
+		"--timeout", "3", "--cursor", "opaque+/cursor")
+	if got, want := ExitCode(err), 11; got != want {
+		t.Fatalf("exit code = %d, want %d", got, want)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", output.String())
+	}
+	var printed bytes.Buffer
+	PrintError(root, &printed, err)
+	if got, want := printed.String(), timeoutBody+"\n"; got != want {
+		t.Fatalf("error output = %q, want %q", got, want)
+	}
+}
+
 func TestTicketRequesterTicketsForwardsSameProjectHistoryFilters(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/requester-tickets"; got != want {

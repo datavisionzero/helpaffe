@@ -62,6 +62,23 @@
         }
       }
     },
+    "/tickets/wait": {
+      "get": {
+        "operationId": "waitForTicketWork",
+        "summary": "Wait without acquiring for an eligible open ticket or a customer reply after the cursor",
+        "parameters": [
+          { "name": "project_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "timeout_seconds", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 60, "default": 20 } },
+          { "name": "cursor", "in": "query", "description": "Opaque actor- and project-bound cursor from an earlier wait response", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Available work or an empty timed-out result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketWaitResult" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/tickets/{number}": {
       "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
       "get": {
@@ -420,6 +437,26 @@
         "properties": {
           "items": { "type": "array", "items": { "$ref": "#/components/schemas/TicketSummary" } },
           "next_cursor": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "TicketWork": {
+        "type": "object",
+        "required": ["kind", "ticket", "customer_reply_at"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["open_ticket", "customer_reply"] },
+          "ticket": { "$ref": "#/components/schemas/TicketSummary" },
+          "customer_reply_at": { "type": ["string", "null"], "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "TicketWaitResult": {
+        "type": "object",
+        "required": ["work", "cursor", "timed_out"],
+        "properties": {
+          "work": { "oneOf": [{ "$ref": "#/components/schemas/TicketWork" }, { "type": "null" }] },
+          "cursor": { "type": "string" },
+          "timed_out": { "type": "boolean" }
         },
         "additionalProperties": false
       },

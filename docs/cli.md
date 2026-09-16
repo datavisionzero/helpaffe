@@ -44,6 +44,7 @@ only the selected source names and never prints a credential. Product keys
 | `ticket get` / `ticket context` | Read the full ticket conversation, technical creation context, and instructions |
 | `ticket requester-tickets` / `ticket related` | List other tickets for the same requester within the source ticket's project |
 | `ticket next` | Atomically acquire the next eligible ticket |
+| `ticket wait` | Wait without acquiring until an open ticket or new customer reply is available |
 | `ticket reply`, `ticket note` | Add a public reply or internal note |
 | `ticket update` | Change status, priority, or assignee |
 | `ticket snooze NUMBER --until DATE_TIME`, `ticket unsnooze NUMBER` | Set or clear the UTC instant until which a ticket stays out of normal work queues |
@@ -114,6 +115,7 @@ Exit codes are derived from HTTP status and problem code:
 | 8 | No eligible ticket for a `next` operation |
 | 9 | Client/server version skew |
 | 10 | DNS, connection, timeout, or TLS failure |
+| 11 | A `ticket wait` operation reached its server-side timeout without work |
 
 The server remains the source of permission and domain decisions. The CLI may
 reject malformed local arguments, but it does not duplicate role matrices or

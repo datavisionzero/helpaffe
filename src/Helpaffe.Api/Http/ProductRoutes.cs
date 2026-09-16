@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Helpaffe.Api.Hosting;
 using Helpaffe.Domain.Tickets;
 using Helpaffe.Infrastructure.Identity;
 using Helpaffe.Infrastructure.Notifications;
@@ -31,7 +32,8 @@ public static class ProductRoutes
     private static async Task<IResult> CreateTicket(
         CreateTicketRequest request,
         HttpContext context,
-        IDbContextFactory<HelpaffeDbContext> factory)
+        IDbContextFactory<HelpaffeDbContext> factory,
+        TicketWorkNotifier workNotifier)
     {
         var validation = ValidateRequester(request.ExternalUserId, request.Name, request.Email);
         if (validation is not null) return validation;
@@ -65,6 +67,7 @@ public static class ProductRoutes
         AddIdempotency(database, actor, key!, requestHash, 201, body, ticket.Version);
         var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: true);
         if (saveError is not null) return saveError;
+        workNotifier.Signal();
         context.Response.Headers.Location = $"/api/product/tickets/{ticket.Number}?external_user_id={Uri.EscapeDataString(ticket.RequesterExternalId)}";
         return StoredJson(context, 201, body, ETag(ticket.Version));
     }
@@ -120,7 +123,8 @@ public static class ProductRoutes
         string number,
         CustomerReplyRequest request,
         HttpContext context,
-        IDbContextFactory<HelpaffeDbContext> factory)
+        IDbContextFactory<HelpaffeDbContext> factory,
+        TicketWorkNotifier workNotifier)
     {
         if (!Required(request.ExternalUserId, 200))
             return Problem(400, "validation", "External user id is required and may contain at most 200 characters.");
@@ -146,7 +150,9 @@ public static class ProductRoutes
         var body = JsonSerializer.Serialize(ProductTicketDetail(ticket), JsonOptions(context));
         AddIdempotency(database, actor, key!, requestHash, 200, body, ticket.Version);
         var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: false);
-        return saveError ?? StoredJson(context, 200, body, ETag(ticket.Version));
+        if (saveError is not null) return saveError;
+        workNotifier.Signal();
+        return StoredJson(context, 200, body, ETag(ticket.Version));
     }
 
     private static Task<Ticket?> LoadTicket(

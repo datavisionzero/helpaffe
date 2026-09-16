@@ -14,6 +14,7 @@ var connectionString = builder.Configuration.GetConnectionString("Database")
 builder.Services.AddDbContextFactory<HelpaffeDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<NotificationDispatcher>();
+builder.Services.AddSingleton<TicketWorkNotifier>();
 builder.Services.AddHostedService<NotificationWorker>();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {

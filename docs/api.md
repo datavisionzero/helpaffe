@@ -213,6 +213,7 @@ operations are:
 | `GET /api/backoffice/tickets/{number}` | Read the requester, technical creation context, complete conversation, delivery history, actor attribution, and project support instructions together |
 | `GET /api/backoffice/tickets/{number}/requester-tickets` | List other tickets for the same stable requester ID within that ticket's project |
 | `POST /api/backoffice/tickets/next` | Atomically assign and start the urgent-first, longest-waiting eligible Open ticket |
+| `GET /api/backoffice/tickets/wait` | Wait up to 60 seconds for eligible open work or a customer reply after an opaque cursor, without acquiring it |
 | `PATCH /api/backoffice/tickets/{number}` | Change status, priority, or eligible human assignee |
 | `PUT /api/backoffice/tickets/{number}/snooze` | Set a future snooze instant or clear it with `null` |
 | `POST /api/backoffice/tickets/{number}/development-references` | Append a typed Planaffe, GitHub, or GitLab HTTPS task reference |
@@ -255,6 +256,15 @@ an HTTPS URL, and a short display label. They are support-only ticket context:
 helpaffe neither contacts nor synchronizes the referenced system. Adding and
 removing a reference creates an internal system event, and duplicate URLs on a
 ticket are rejected.
+
+`wait` returns immediately when an eligible Open ticket exists. Otherwise it
+waits for a customer reply newer than its actor- and project-bound cursor. A
+request without a cursor starts watching from the request instant, so old
+customer activity is not replayed. Each response carries the next cursor. A
+timeout is a successful empty result (`work: null`, `timed_out: true`), while
+request cancellation ends the server wait. In-process change notifications wake
+all waiters; a one-second fallback scan covers snooze expiry and access changes
+without aggressive client polling. Waiting never assigns or changes a ticket.
 
 Ticket reads return `ETag: "N"` and the same positive `version` in the body.
 Ticket mutations require that value in `If-Match`; omission returns
