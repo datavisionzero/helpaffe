@@ -128,6 +128,54 @@ public sealed class TicketTests
         Assert.Equal(beforeCombinedUpdate + 1, ticket.Version);
     }
 
+    [Fact]
+    public void Snooze_is_a_versioned_audited_field_and_must_end_in_the_future()
+    {
+        var userId = Guid.NewGuid();
+        var agentId = Guid.NewGuid();
+        var ticket = CreateTicket();
+        var until = CreatedAt.AddDays(2);
+
+        ticket.SetSnooze(until, userId, agentId, CreatedAt.AddMinutes(1));
+
+        Assert.Equal(until, ticket.SnoozedUntil);
+        Assert.Equal(2, ticket.Version);
+        Assert.Contains(ticket.Conversation, entry =>
+            entry.Kind is ConversationEntryKind.SystemEvent &&
+            entry.Body.Contains("not set", StringComparison.Ordinal) &&
+            entry.Body.Contains(until.ToString("O"), StringComparison.Ordinal) &&
+            entry.ActorUserId == userId &&
+            entry.ActingAgentCredentialId == agentId);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ticket.SetSnooze(CreatedAt, userId, agentId, CreatedAt.AddMinutes(2)));
+
+        ticket.SetSnooze(null, userId, agentId, CreatedAt.AddMinutes(3));
+
+        Assert.Null(ticket.SnoozedUntil);
+        Assert.Equal(3, ticket.Version);
+        Assert.Contains(ticket.Conversation, entry =>
+            entry.Kind is ConversationEntryKind.SystemEvent &&
+            entry.Body.Contains(until.ToString("O"), StringComparison.Ordinal) &&
+            entry.Body.EndsWith("not set.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Customer_reply_wakes_a_snoozed_ticket_without_an_extra_version_increment()
+    {
+        var userId = Guid.NewGuid();
+        var ticket = CreateTicket();
+        ticket.SetSnooze(CreatedAt.AddDays(2), userId, null, CreatedAt.AddMinutes(1));
+        var beforeReply = ticket.Version;
+
+        ticket.AddCustomerMessage(Guid.NewGuid(), "Please look again", CreatedAt.AddMinutes(2));
+
+        Assert.Null(ticket.SnoozedUntil);
+        Assert.Equal(beforeReply + 1, ticket.Version);
+        Assert.Contains(ticket.Conversation, entry =>
+            entry.Kind is ConversationEntryKind.SystemEvent &&
+            entry.Body.StartsWith("Snooze cleared by customer reply", StringComparison.Ordinal));
+    }
+
     private static Ticket CreateTicket(Guid? projectId = null) => Ticket.Create(
         Guid.NewGuid(),
         "HLP-42",

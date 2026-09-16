@@ -104,6 +104,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         ticket.Property(value => value.ContextJson).HasColumnName("context_json");
         ticket.Property(value => value.Priority).HasConversion<string>().HasMaxLength(32);
         ticket.Property(value => value.Status).HasConversion<string>().HasMaxLength(32);
+        ticket.Property(value => value.SnoozedUntil).HasColumnName("snoozed_until");
         ticket.Property(value => value.Version).IsConcurrencyToken();
         ticket.HasIndex(value => new { value.Status, value.Priority, value.WaitingSince, value.Id });
         ticket.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Restrict);

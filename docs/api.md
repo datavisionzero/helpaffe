@@ -214,6 +214,7 @@ operations are:
 | `GET /api/backoffice/tickets/{number}/requester-tickets` | List other tickets for the same stable requester ID within that ticket's project |
 | `POST /api/backoffice/tickets/next` | Atomically assign and start the urgent-first, longest-waiting eligible Open ticket |
 | `PATCH /api/backoffice/tickets/{number}` | Change status, priority, or eligible human assignee |
+| `PUT /api/backoffice/tickets/{number}/snooze` | Set a future snooze instant or clear it with `null` |
 | `POST /api/backoffice/tickets/{number}/replies` | Atomically add a public reply and its resulting status |
 | `POST /api/backoffice/tickets/{number}/notes` | Add an internal support note |
 | `POST /api/backoffice/tickets/{number}/notifications/{notificationId}/retry` | Retry one failed email delivery without changing the ticket version or conversation |
@@ -240,11 +241,18 @@ row locking with skip-locked selection prevents parallel agents from acquiring
 the same ticket. Acquisition changes the ticket to In Progress and never
 expires automatically.
 
+An active `snoozed_until` leaves the ticket status unchanged but excludes the
+ticket from the normal list, full-text search, and `next` acquisition. Direct
+reads and requester history still expose it. The ticket becomes eligible again
+as soon as the instant passes, without a background job. A new customer reply
+clears an active snooze immediately. Setting and clearing the value is recorded
+as an internal system event.
+
 Ticket reads return `ETag: "N"` and the same positive `version` in the body.
 Ticket mutations require that value in `If-Match`; omission returns
 `version-required`, while a concurrent change returns `stale` with
 `current_version`. Replies, notes, and next-ticket acquisition also require an
-`Idempotency-Key`. Repeating the same request for 24 hours returns its original
+`Idempotency-Key`; snooze changes require it as well. Repeating the same request for 24 hours returns its original
 body and ETag without adding another conversation entry; reuse for a different
 request returns `idempotency-mismatch`.
 

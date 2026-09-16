@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -18,11 +19,71 @@ func (app *application) newTicketCommand() *cobra.Command {
 		app.newTicketReplyCommand(),
 		app.newTicketNoteCommand(),
 		app.newTicketUpdateCommand(),
+		app.newTicketSnoozeCommand(),
+		app.newTicketUnsnoozeCommand(),
 		app.newTicketStatusCommand("resolve", "resolved"),
 		app.newTicketStatusCommand("reopen", "open"),
 		app.newTicketNotificationCommand(),
 	)
 	return ticket
+}
+
+func (app *application) newTicketSnoozeCommand() *cobra.Command {
+	var until string
+	var version int
+	command := &cobra.Command{
+		Use:   "snooze NUMBER",
+		Short: "Hide a ticket from normal work queues until a UTC date-time",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if version < 1 || until == "" {
+				return &exitError{code: 2, message: "--version and --until are required"}
+			}
+			parsed, err := time.Parse(time.RFC3339, until)
+			if err != nil {
+				return &exitError{code: 2, message: "--until must be an RFC 3339 date-time"}
+			}
+			return app.setTicketSnooze(command, args[0], version, parsed.UTC().Format(time.RFC3339))
+		},
+	}
+	command.Flags().IntVar(&version, "version", 0, "last-read positive ticket version")
+	command.Flags().StringVar(&until, "until", "", "future RFC 3339 date-time")
+	return command
+}
+
+func (app *application) newTicketUnsnoozeCommand() *cobra.Command {
+	var version int
+	command := &cobra.Command{
+		Use:   "unsnooze NUMBER",
+		Short: "Return a snoozed ticket to normal work queues",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if version < 1 {
+				return &exitError{code: 2, message: "--version is required"}
+			}
+			return app.setTicketSnooze(command, args[0], version, nil)
+		},
+	}
+	command.Flags().IntVar(&version, "version", 0, "last-read positive ticket version")
+	return command
+}
+
+func (app *application) setTicketSnooze(command *cobra.Command, number string, version int, until any) error {
+	client, err := app.apiClient()
+	if err != nil {
+		return err
+	}
+	key, err := requestKey()
+	if err != nil {
+		return err
+	}
+	body, _, err := client.request(http.MethodPut, "/api/backoffice/tickets/"+url.PathEscape(number)+"/snooze", map[string]any{
+		"snoozed_until": until,
+	}, version, key)
+	if err != nil {
+		return err
+	}
+	return app.write(command, body)
 }
 
 func (app *application) newTicketRequesterTicketsCommand() *cobra.Command {

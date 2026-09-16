@@ -17,6 +17,7 @@ type TicketSummary = {
   updated_at: string;
   last_customer_reply_at: string;
   waiting_since: string;
+  snoozed_until: string | null;
 };
 type ConversationEntry = {
   id: string;
@@ -77,6 +78,7 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   const [reply, setReply] = useState("");
   const [replyStatus, setReplyStatus] = useState<TicketStatus>("waiting_for_customer");
   const [note, setNote] = useState("");
+  const [snoozeUntil, setSnoozeUntil] = useState("");
   const [composer, setComposer] = useState<"reply" | "note">("reply");
   const [conflict, setConflict] = useState<{ detail: string; currentVersion?: number } | null>(null);
   const [notice, setNotice] = useState("");
@@ -127,6 +129,7 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       setError("");
       const selected = await call<TicketDetail>(`/tickets/${encodeURIComponent(number)}`);
       setDetail(selected);
+      setSnoozeUntil(toLocalDateTime(selected.summary.snoozed_until));
       setRequesterTickets([]);
       setRequesterTicketsCursor(null);
       if (!preserveDrafts) {
@@ -193,6 +196,7 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       setError("");
       const updated = await action();
       setDetail(updated);
+      setSnoozeUntil(toLocalDateTime(updated.summary.snoozed_until));
       setFieldDraft(fieldsFrom(updated.summary));
       setConflict(null);
       clear?.();
@@ -254,6 +258,30 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
     }
   }
 
+  async function saveSnooze(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!detail || !snoozeUntil) return;
+    const parsed = new Date(snoozeUntil);
+    if (Number.isNaN(parsed.getTime())) {
+      setError("Choose a valid snooze date and time.");
+      return;
+    }
+    await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/snooze`, {
+      method: "PUT",
+      headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
+      body: JSON.stringify({ snoozed_until: parsed.toISOString() }),
+    }));
+  }
+
+  async function clearSnooze() {
+    if (!detail) return;
+    await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/snooze`, {
+      method: "PUT",
+      headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
+      body: JSON.stringify({ snoozed_until: null }),
+    }));
+  }
+
   function selectQueue(value: Queue) {
     setQueue(value);
     setDetail(null);
@@ -313,6 +341,7 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
           <button className="secondary compact" onClick={() => void openTicket(detail.summary.number, true)}>Refresh</button>
         </header>
         {hasNewCustomerActivity && <div className="customer-activity" role="status"><strong>New customer activity</strong><span>The latest message came from the requester. Review it before replying.</span></div>}
+        {detail.summary.snoozed_until && <div className="notice" role="status">Snoozed until {formatDate(detail.summary.snoozed_until)}. Direct work remains available.</div>}
         {conflict && <div className="conflict" role="alert">
           <div><strong>This ticket changed while you were working.</strong><span>{conflict.detail} Your draft has been kept{conflict.currentVersion ? `; the current version is ${conflict.currentVersion}` : ""}.</span></div>
           <button onClick={() => void openTicket(detail.summary.number, true)}>Reload ticket</button>
@@ -349,6 +378,12 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
               <label>Priority<select value={fieldDraft?.priority ?? detail.summary.priority} onChange={event => setFieldDraft(current => current && { ...current, priority: event.target.value as TicketPriority })}><option value="normal">Normal</option><option value="urgent">Urgent</option></select></label>
               <label>Assignee<select value={fieldDraft?.assigneeId ?? ""} onChange={event => setFieldDraft(current => current && { ...current, assigneeId: event.target.value })}><option value="">Unassigned</option>{ticketAssignees.map(person => <option key={person.id} value={person.id}>{person.name}{person.id === user.id ? " (you)" : ""}</option>)}</select></label>
               <button type="submit" disabled={!fieldsChanged}>Save ticket fields</button>
+            </form>
+            <form className="snooze-card" onSubmit={saveSnooze}>
+              <p className="eyebrow">Snooze</p>
+              <label>Return to queue<input type="datetime-local" value={snoozeUntil} min={toLocalDateTime(new Date(Date.now() + 60_000).toISOString())} onChange={event => setSnoozeUntil(event.target.value)} required /></label>
+              <button type="submit">Snooze ticket</button>
+              {detail.summary.snoozed_until && <button type="button" className="secondary" onClick={() => void clearSnooze()}>Clear snooze</button>}
             </form>
             <div className="requester-card"><p className="eyebrow">Requester</p><strong>{detail.requester.name}</strong><a href={`mailto:${detail.requester.email}`}>{detail.requester.email}</a><span>{detail.requester.external_user_id}</span></div>
             <section className="related-tickets" aria-label="Other tickets from this requester">
@@ -420,6 +455,13 @@ function targetLabel(target: string) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function toLocalDateTime(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function relativeTime(value: string) {

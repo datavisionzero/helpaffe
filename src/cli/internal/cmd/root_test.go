@@ -94,6 +94,62 @@ func TestTicketNotificationRetryUsesIdempotencyWithoutTicketVersion(t *testing.T
 	}
 }
 
+func TestTicketSnoozeUsesUtcVersionAndIdempotency(t *testing.T) {
+	var received map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/snooze"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if request.Method != http.MethodPut {
+			t.Errorf("method = %q", request.Method)
+		}
+		if got, want := request.Header.Get("If-Match"), `"7"`; got != want {
+			t.Errorf("If-Match = %q, want %q", got, want)
+		}
+		if request.Header.Get("Idempotency-Key") == "" {
+			t.Error("Idempotency-Key is missing")
+		}
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "summary": { "version": 8, "snoozed_until": "2026-09-17T10:00:00Z" } }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "ticket", "snooze", "HLP-42", "--version", "7", "--until", "2026-09-17T12:00:00+02:00"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := received["snoozed_until"], "2026-09-17T10:00:00Z"; got != want {
+		t.Fatalf("snoozed_until = %q, want %q", got, want)
+	}
+}
+
+func TestTicketUnsnoozeSendsNull(t *testing.T) {
+	var received map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "summary": { "version": 9, "snoozed_until": null } }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "ticket", "unsnooze", "HLP-42", "--version", "8"); err != nil {
+		t.Fatal(err)
+	}
+	if value, ok := received["snoozed_until"]; !ok || value != nil {
+		t.Fatalf("snoozed_until = %#v, want explicit null", value)
+	}
+}
+
 func TestTicketRequesterTicketsForwardsSameProjectHistoryFilters(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/requester-tickets"; got != want {

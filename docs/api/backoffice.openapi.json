@@ -106,6 +106,29 @@
         }
       }
     },
+    "/tickets/{number}/snooze": {
+      "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
+      "put": {
+        "operationId": "setTicketSnooze",
+        "summary": "Set or clear the date-time until which a ticket is excluded from normal work queues",
+        "parameters": [{ "$ref": "#/components/parameters/IfMatch" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object",
+          "required": ["snoozed_until"],
+          "properties": { "snoozed_until": { "type": ["string", "null"], "format": "date-time", "description": "A future instant, or null to clear the snooze" } },
+          "additionalProperties": false
+        } } } },
+        "responses": {
+          "200": { "description": "Updated or idempotently replayed ticket context", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "412": { "$ref": "#/components/responses/Stale" },
+          "428": { "$ref": "#/components/responses/VersionRequired" }
+        }
+      }
+    },
     "/tickets/{number}/replies": {
       "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
       "post": {
@@ -336,7 +359,7 @@
       },
       "TicketSummary": {
         "type": "object",
-        "required": ["id", "number", "project", "subject", "status", "priority", "version", "assignee", "created_at", "updated_at", "last_customer_reply_at", "waiting_since"],
+        "required": ["id", "number", "project", "subject", "status", "priority", "version", "assignee", "created_at", "updated_at", "last_customer_reply_at", "waiting_since", "snoozed_until"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "number": { "type": "string" },
@@ -349,7 +372,8 @@
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
           "last_customer_reply_at": { "type": "string", "format": "date-time" },
-          "waiting_since": { "type": "string", "format": "date-time" }
+          "waiting_since": { "type": "string", "format": "date-time" },
+          "snoozed_until": { "type": ["string", "null"], "format": "date-time" }
         },
         "additionalProperties": false
       },

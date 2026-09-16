@@ -158,8 +158,8 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
 .composer-actions label { min-width: 13rem; }
 .note-button { color: #1d1d12; background: #d6bd72; }
 .ticket-sidebar { display: grid; align-content: start; gap: 1rem; }
-.ticket-fields, .requester-card, .related-tickets, .ticket-context, .notification-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.1rem; background: #14211d; }
-.ticket-fields p, .requester-card p { margin: 0; }
+.ticket-fields, .snooze-card, .requester-card, .related-tickets, .ticket-context, .notification-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.1rem; background: #14211d; }
+.ticket-fields p, .snooze-card p, .requester-card p { margin: 0; }
 .requester-card { gap: 0.35rem; }
 .requester-card span { overflow-wrap: anywhere; color: #82968d; font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; }
 .related-tickets > p { margin: 0; }

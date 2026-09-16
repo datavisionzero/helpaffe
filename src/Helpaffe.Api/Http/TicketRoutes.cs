@@ -23,6 +23,7 @@ public static class TicketRoutes
         group.MapGet("/tickets/{number}", GetTicket);
         group.MapGet("/tickets/{number}/requester-tickets", ListRequesterTickets);
         group.MapPatch("/tickets/{number}", UpdateTicket);
+        group.MapPut("/tickets/{number}/snooze", SetSnooze);
         group.MapPost("/tickets/{number}/replies", AddReply);
         group.MapPost("/tickets/{number}/notes", AddNote);
         group.MapGet("/projects/{projectId:guid}/support-instructions", GetSupportInstructions);
@@ -78,7 +79,10 @@ public static class TicketRoutes
         if (!TryCursor(cursor, signature, out var cursorUpdatedAt, out var cursorId))
             return Problem(400, "cursor-invalid", "The cursor does not belong to this ticket query.");
 
-        var query = database.Tickets.AsNoTracking().Where(value => visibleProjectIds.Contains(value.ProjectId));
+        var now = DateTimeOffset.UtcNow;
+        var query = database.Tickets.AsNoTracking().Where(value =>
+            visibleProjectIds.Contains(value.ProjectId) &&
+            (value.SnoozedUntil == null || value.SnoozedUntil <= now));
         if (parsedStatus is not null) query = query.Where(value => value.Status == parsedStatus);
         if (parsedPriority is not null) query = query.Where(value => value.Priority == parsedPriority);
         if (project_id is not null) query = query.Where(value => value.ProjectId == project_id);
@@ -197,6 +201,7 @@ public static class TicketRoutes
             FROM tickets
             WHERE "ProjectId" = ANY ({candidateProjectIds})
               AND "Status" = 'Open'
+              AND (snoozed_until IS NULL OR snoozed_until <= NOW())
               AND ("AssigneeUserId" IS NULL OR "AssigneeUserId" = {userId})
             ORDER BY CASE WHEN "Priority" = 'Urgent' THEN 0 ELSE 1 END,
                      "WaitingSince",
@@ -335,6 +340,36 @@ public static class TicketRoutes
         if (saveError is not null) return saveError;
         context.Response.Headers.ETag = ETag(ticket.Version);
         return Results.Ok(await TicketDetail(ticket, database, context.RequestAborted));
+    }
+
+    private static async Task<IResult> SetSnooze(
+        string number,
+        SetSnoozeRequest request,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory)
+    {
+        var actor = context.Actor()!;
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var ticket = await LoadVisibleTicket(number, context, database);
+        if (ticket is null) return NotFound();
+        if (!IdempotencyKey(context, out var key, out var keyError)) return keyError!;
+        var requestHash = RequestHash(context, JsonSerializer.Serialize(request, JsonOptions(context)));
+        var replay = await ExistingIdempotency(database, actor, key!, requestHash, context);
+        if (replay is not null) return replay;
+        if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
+
+        var changedAt = DateTimeOffset.UtcNow;
+        if (request.SnoozedUntil is not null && request.SnoozedUntil <= changedAt)
+            return Problem(400, "validation", "Snoozed until must be a future date-time.");
+        var existingEntryCount = ticket.Conversation.Count;
+        ticket.SetSnooze(request.SnoozedUntil, actor.User.Id, actor.Agent?.Id, changedAt);
+        TrackNewEntries(database, ticket, existingEntryCount);
+        var detail = await TicketDetail(ticket, database, context.RequestAborted);
+        var body = JsonSerializer.Serialize(detail, JsonOptions(context));
+        AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
+        var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
+        if (saveError is not null) return saveError;
+        return StoredJson(context, 200, body, ETag(ticket.Version));
     }
 
     private static async Task<IResult> GetSupportInstructions(
@@ -611,6 +646,7 @@ public static class TicketRoutes
         updated_at = ticket.UpdatedAt,
         last_customer_reply_at = ticket.LastCustomerReplyAt,
         waiting_since = ticket.WaitingSince,
+        snoozed_until = ticket.SnoozedUntil,
     };
 
     private static object InstructionsShape(ProjectRecord project) => new
@@ -752,5 +788,6 @@ public static class TicketRoutes
     private sealed record AddNoteRequest(string Message);
     private sealed record NextTicketRequest(Guid? ProjectId);
     private sealed record UpdateTicketRequest(string? Status, string? Priority, Guid? AssigneeId, bool ClearAssignee = false);
+    private sealed record SetSnoozeRequest(DateTimeOffset? SnoozedUntil);
     private sealed record UpdateSupportInstructionsRequest(string Markdown);
 }

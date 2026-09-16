@@ -122,6 +122,35 @@ public sealed class SupportApiTests : IAsyncLifetime
         var mine = await Read(await supportAgent.GetAsync("/api/backoffice/tickets?mine=true", TestContext.Current.CancellationToken));
         Assert.Single(mine.GetProperty("items").EnumerateArray());
 
+        var snoozedUntil = DateTimeOffset.UtcNow.AddHours(2);
+        var snoozed = await SendTicketJson(supportAgent, HttpMethod.Put, "/api/backoffice/tickets/HLP-201/snooze",
+            new { snoozed_until = snoozedUntil }, version, "snooze-201");
+        Assert.Equal(HttpStatusCode.OK, snoozed.StatusCode);
+        var snoozedDocument = await Read(snoozed);
+        version = snoozedDocument.GetProperty("summary").GetProperty("version").GetInt32();
+        Assert.Equal(snoozedUntil, snoozedDocument.GetProperty("summary").GetProperty("snoozed_until").GetDateTimeOffset(), TimeSpan.FromMilliseconds(1));
+        var replayedSnooze = await SendTicketJson(supportAgent, HttpMethod.Put, "/api/backoffice/tickets/HLP-201/snooze",
+            new { snoozed_until = snoozedUntil }, version - 1, "snooze-201");
+        Assert.Equal(version, (await Read(replayedSnooze)).GetProperty("summary").GetProperty("version").GetInt32());
+        Assert.Empty((await Read(await supportAgent.GetAsync("/api/backoffice/tickets?mine=true", TestContext.Current.CancellationToken)))
+            .GetProperty("items").EnumerateArray());
+        Assert.Empty((await Read(await supportAgent.GetAsync("/api/backoffice/tickets?search=blank", TestContext.Current.CancellationToken)))
+            .GetProperty("items").EnumerateArray());
+        var directSnoozed = await Read(await supportAgent.GetAsync("/api/backoffice/tickets/HLP-201", TestContext.Current.CancellationToken));
+        Assert.Equal(version, directSnoozed.GetProperty("summary").GetProperty("version").GetInt32());
+        var noNext = await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/next",
+            new { project_id = firstProject }, 0, "next-while-snoozed");
+        Assert.Equal(HttpStatusCode.NotFound, noNext.StatusCode);
+
+        var unsnoozed = await SendTicketJson(supportAgent, HttpMethod.Put, "/api/backoffice/tickets/HLP-201/snooze",
+            new { snoozed_until = (DateTimeOffset?)null }, version, "unsnooze-201");
+        Assert.Equal(HttpStatusCode.OK, unsnoozed.StatusCode);
+        var unsnoozedDocument = await Read(unsnoozed);
+        version = unsnoozedDocument.GetProperty("summary").GetProperty("version").GetInt32();
+        Assert.Equal(JsonValueKind.Null, unsnoozedDocument.GetProperty("summary").GetProperty("snoozed_until").ValueKind);
+        Assert.Single((await Read(await supportAgent.GetAsync("/api/backoffice/tickets?mine=true", TestContext.Current.CancellationToken)))
+            .GetProperty("items").EnumerateArray());
+
         var note = await SendTicketJson(supportAgent, HttpMethod.Post, "/api/backoffice/tickets/HLP-201/notes", new { message = "Reproduced in production." }, version, "note-201");
         Assert.Equal(HttpStatusCode.OK, note.StatusCode);
         version = (await Read(note)).GetProperty("summary").GetProperty("version").GetInt32();
@@ -160,6 +189,7 @@ public sealed class SupportApiTests : IAsyncLifetime
         Assert.Contains(stored.Conversation, value => value.Kind is ConversationEntryKind.InternalNote && value.ActingAgentCredentialId is not null);
         Assert.Contains(stored.Conversation, value => value.Kind is ConversationEntryKind.PublicReply && value.ActingAgentCredentialId is not null);
         Assert.Single(stored.Conversation, value => value.Kind is ConversationEntryKind.PublicReply);
+        Assert.Equal(2, stored.Conversation.Count(value => value.Kind is ConversationEntryKind.SystemEvent && value.Body.StartsWith("Snooze changed", StringComparison.Ordinal)));
         Assert.DoesNotContain(stored.Conversation, value => value.Body == "Must not persist");
         Assert.Equal(repliedVersion, stored.Version);
     }

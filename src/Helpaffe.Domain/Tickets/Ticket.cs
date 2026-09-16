@@ -72,12 +72,20 @@ public sealed class Ticket
     public DateTimeOffset UpdatedAt { get; private set; }
     public DateTimeOffset LastCustomerReplyAt { get; private set; }
     public DateTimeOffset WaitingSince { get; private set; }
+    public DateTimeOffset? SnoozedUntil { get; private set; }
     public IReadOnlyCollection<ConversationEntry> Conversation => _conversation.AsReadOnly();
 
     public void AddCustomerMessage(Guid entryId, string body, DateTimeOffset createdAt)
     {
         AddEntry(entryId, ConversationEntryKind.CustomerMessage, body, createdAt);
         LastCustomerReplyAt = createdAt;
+        if (SnoozedUntil is not null)
+        {
+            var previous = SnoozedUntil.Value;
+            SnoozedUntil = null;
+            AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent,
+                $"Snooze cleared by customer reply (was {previous:O}).", createdAt);
+        }
         if (Status is TicketStatus.WaitingForCustomer or TicketStatus.Resolved)
             ChangeStatusCore(TicketStatus.Open, createdAt, null, null, "Customer reply reopened the ticket.");
         UpdatedAt = createdAt;
@@ -150,6 +158,26 @@ public sealed class Ticket
             UpdatedAt = changedAt;
             Version++;
         }
+    }
+
+    public void SetSnooze(
+        DateTimeOffset? snoozedUntil,
+        Guid actorUserId,
+        Guid? actingAgentCredentialId,
+        DateTimeOffset changedAt)
+    {
+        var normalized = snoozedUntil?.ToUniversalTime();
+        if (normalized is not null && normalized <= changedAt.ToUniversalTime())
+            throw new ArgumentOutOfRangeException(nameof(snoozedUntil), "A snooze must end in the future.");
+        if (SnoozedUntil == normalized) return;
+
+        var previous = SnoozedUntil is null ? "not set" : SnoozedUntil.Value.ToString("O");
+        var next = normalized is null ? "not set" : normalized.Value.ToString("O");
+        SnoozedUntil = normalized;
+        AddEntry(Guid.NewGuid(), ConversationEntryKind.SystemEvent,
+            $"Snooze changed from {previous} to {next}.", changedAt, actorUserId, actingAgentCredentialId);
+        UpdatedAt = changedAt;
+        Version++;
     }
 
     public void Update(
