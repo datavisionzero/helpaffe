@@ -304,10 +304,11 @@
       },
       "TicketDetail": {
         "type": "object",
-        "required": ["summary", "requester", "support_instructions", "conversation"],
+        "required": ["summary", "requester", "context", "support_instructions", "conversation"],
         "properties": {
           "summary": { "$ref": "#/components/schemas/TicketSummary" },
           "requester": { "$ref": "#/components/schemas/Requester" },
+          "context": { "type": ["object", "null"], "description": "Immutable JSON snapshot supplied when the product created the ticket", "additionalProperties": true },
           "support_instructions": { "type": "string" },
           "conversation": { "type": "array", "items": { "$ref": "#/components/schemas/ConversationEntry" } }
         },

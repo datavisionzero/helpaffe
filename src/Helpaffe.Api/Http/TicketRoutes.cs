@@ -541,6 +541,7 @@ public static class TicketRoutes
         {
             summary = TicketSummary(ticket, project, ticket.AssigneeUserId is { } id ? users.GetValueOrDefault(id) : null),
             requester = new { external_user_id = ticket.RequesterExternalId, name = ticket.RequesterName, email = ticket.RequesterEmail },
+            context = ParseContext(ticket.ContextJson),
             support_instructions = project.SupportInstructions,
             conversation = ticket.Conversation.OrderBy(value => value.Sequence).Select(value => new
             {
@@ -583,6 +584,13 @@ public static class TicketRoutes
         project_key = project.Key,
         markdown = project.SupportInstructions,
     };
+
+    private static JsonElement? ParseContext(string? contextJson)
+    {
+        if (contextJson is null) return null;
+        using var document = JsonDocument.Parse(contextJson);
+        return document.RootElement.Clone();
+    }
 
     private static bool TryStatus(string? value, out TicketStatus? status)
     {

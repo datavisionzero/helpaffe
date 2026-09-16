@@ -174,6 +174,10 @@ when an agent belongs to an administrator.
 | `POST /api/backoffice/projects/{projectId}/product-keys` | Create a project-bound product key and return it once |
 | `DELETE /api/backoffice/product-keys/{id}` | Revoke one product key without affecting the project's other keys |
 | `GET /api/product/project` | Read the project bound to the presented product API key |
+| `POST /api/product/tickets` | Create an Open ticket for an identified end user, with an optional JSON context snapshot |
+| `GET /api/product/tickets?external_user_id=...` | List only that end user's tickets in the key's project |
+| `GET /api/product/tickets/{number}?external_user_id=...` | Read that end user's ticket and public conversation |
+| `POST /api/product/tickets/{number}/replies` | Add a customer message to that end user's ticket |
 
 User creation requires a password of at least 12 characters. The final active
 administrator cannot be deactivated or changed to support. Deactivating a user
@@ -237,3 +241,27 @@ Ticket mutations require that value in `If-Match`; omission returns
 `Idempotency-Key`. Repeating the same request for 24 hours returns its original
 body and ETag without adding another conversation entry; reuse for a different
 request returns `idempotency-mismatch`.
+
+## Product ticket operations
+
+The checked-in [`product.openapi.json`](api/product.openapi.json) is the
+server-to-server contract for product integrations. Every call uses the project
+from the `hfp_` product key; a request cannot provide or override a project id.
+The product backend supplies its authenticated user's stable
+`external_user_id`. Ticket lists, reads, and replies match both that id and the
+key's project, returning `not-found` rather than revealing a ticket across a
+boundary.
+
+Creation records the supplied name and email as ticket requester details. The
+identity remains `(project, external_user_id)`, so later tickets with a changed
+email still belong to the same requester history. The optional `context` must
+be a JSON object whose UTF-8 representation is at most 16 KiB. It is stored as
+an immutable creation snapshot and returned in support ticket context; it is
+not a set of mutable custom fields.
+
+Product reads expose only customer messages and public support replies. They do
+not expose internal notes, system events, support instructions, assignees, or
+administration. Product ticket creation and customer replies require an
+`Idempotency-Key`; replies additionally require the latest ticket ETag in
+`If-Match`. A customer reply reopens Waiting for Customer or Resolved tickets,
+while an In Progress or already Open ticket retains its status.

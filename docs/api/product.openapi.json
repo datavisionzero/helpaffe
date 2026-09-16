@@ -1,0 +1,217 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "helpaffe Product API",
+    "version": "0.1.0",
+    "description": "Server-to-server ticket integration for one project-bound product API key."
+  },
+  "servers": [{ "url": "/api/product" }],
+  "security": [{ "productKey": [] }],
+  "paths": {
+    "/project": {
+      "get": {
+        "operationId": "getProductProject",
+        "summary": "Read the project bound to the product key",
+        "responses": {
+          "200": { "description": "Bound project", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
+      }
+    },
+    "/tickets": {
+      "get": {
+        "operationId": "listProductTickets",
+        "summary": "List tickets for one external user in the key's project",
+        "parameters": [
+          { "$ref": "#/components/parameters/ExternalUserId" },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "End-user ticket page ordered by latest update", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketPage" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
+      },
+      "post": {
+        "operationId": "createProductTicket",
+        "summary": "Create an Open ticket for an identified end user",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTicket" } } } },
+        "responses": {
+          "201": { "description": "Created or idempotently replayed ticket", "headers": { "ETag": { "$ref": "#/components/headers/ETag" }, "Location": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/tickets/{number}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TicketNumber" },
+        { "$ref": "#/components/parameters/ExternalUserId" }
+      ],
+      "get": {
+        "operationId": "getProductTicket",
+        "summary": "Read one end-user ticket and its public conversation",
+        "responses": {
+          "200": { "description": "End-user-safe ticket detail", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/tickets/{number}/replies": {
+      "parameters": [{ "$ref": "#/components/parameters/TicketNumber" }],
+      "post": {
+        "operationId": "addCustomerReply",
+        "summary": "Add a customer message and apply the fixed reopening rule",
+        "parameters": [
+          { "$ref": "#/components/parameters/IfMatch" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CustomerReply" } } } },
+        "responses": {
+          "200": { "description": "Updated or idempotently replayed ticket", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "412": { "$ref": "#/components/responses/Stale" },
+          "428": { "$ref": "#/components/responses/VersionRequired" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "productKey": { "type": "http", "scheme": "bearer", "bearerFormat": "hfp_ token" }
+    },
+    "parameters": {
+      "TicketNumber": { "name": "number", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 32 }, "example": "HLP-0123456789ABCDEF0123" },
+      "ExternalUserId": { "name": "external_user_id", "in": "query", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
+      "IfMatch": { "name": "If-Match", "in": "header", "required": true, "schema": { "type": "string", "pattern": "^\\\"[1-9][0-9]*\\\"$" }, "example": "\"8\"" },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 200 } }
+    },
+    "headers": {
+      "ETag": { "description": "Quoted positive ticket version", "schema": { "type": "string" }, "example": "\"8\"" }
+    },
+    "responses": {
+      "BadRequest": { "description": "Validation, unknown member, or cursor error", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Unauthenticated": { "description": "Product key missing, unknown, or revoked", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "NotFound": { "description": "Ticket absent or outside the external-user and project scope", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Conflict": { "description": "An idempotency key was reused for another request", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Stale": { "description": "The ticket version changed", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/StaleProblem" } } } },
+      "VersionRequired": { "description": "If-Match was omitted", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
+    },
+    "schemas": {
+      "Project": {
+        "type": "object",
+        "required": ["id", "key", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "key": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "TicketStatus": { "type": "string", "enum": ["open", "in_progress", "waiting_for_customer", "resolved"] },
+      "TicketSummary": {
+        "type": "object",
+        "required": ["id", "number", "subject", "status", "version", "created_at", "updated_at", "last_customer_reply_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "number": { "type": "string", "maxLength": 32 },
+          "subject": { "type": "string", "maxLength": 300 },
+          "status": { "$ref": "#/components/schemas/TicketStatus" },
+          "version": { "type": "integer", "minimum": 1 },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "last_customer_reply_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "TicketPage": {
+        "type": "object",
+        "required": ["items", "next_cursor"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/TicketSummary" } },
+          "next_cursor": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "Requester": {
+        "type": "object",
+        "required": ["external_user_id", "name", "email"],
+        "properties": {
+          "external_user_id": { "type": "string", "maxLength": 200 },
+          "name": { "type": "string", "maxLength": 200 },
+          "email": { "type": "string", "format": "email", "maxLength": 320 }
+        },
+        "additionalProperties": false
+      },
+      "PublicConversationEntry": {
+        "type": "object",
+        "required": ["id", "sequence", "kind", "body", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sequence": { "type": "integer", "minimum": 1 },
+          "kind": { "type": "string", "enum": ["customer_message", "public_reply"] },
+          "body": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      },
+      "TicketDetail": {
+        "type": "object",
+        "required": ["summary", "requester", "context", "conversation"],
+        "properties": {
+          "summary": { "$ref": "#/components/schemas/TicketSummary" },
+          "requester": { "$ref": "#/components/schemas/Requester" },
+          "context": { "type": ["object", "null"], "description": "Immutable creation snapshot, limited to 16 KiB of UTF-8 JSON", "additionalProperties": true },
+          "conversation": { "type": "array", "items": { "$ref": "#/components/schemas/PublicConversationEntry" } }
+        },
+        "additionalProperties": false
+      },
+      "CreateTicket": {
+        "type": "object",
+        "required": ["external_user_id", "name", "email", "subject", "message"],
+        "properties": {
+          "external_user_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "email": { "type": "string", "format": "email", "minLength": 1, "maxLength": 320 },
+          "subject": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "message": { "type": "string", "minLength": 1 },
+          "context": { "type": ["object", "null"], "description": "At most 16 KiB when UTF-8 encoded", "additionalProperties": true }
+        },
+        "additionalProperties": false
+      },
+      "CustomerReply": {
+        "type": "object",
+        "required": ["external_user_id", "message"],
+        "properties": {
+          "external_user_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "message": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "Problem": {
+        "type": "object",
+        "required": ["type", "title", "status", "detail"],
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" }
+        }
+      },
+      "StaleProblem": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Problem" },
+          { "type": "object", "required": ["current_version"], "properties": { "current_version": { "type": "integer", "minimum": 1 } } }
+        ]
+      }
+    }
+  }
+}

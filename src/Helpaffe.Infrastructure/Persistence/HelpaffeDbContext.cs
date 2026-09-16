@@ -97,6 +97,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         ticket.Property(value => value.RequesterExternalId).HasColumnName("requester_external_id").HasMaxLength(200);
         ticket.Property(value => value.RequesterName).HasColumnName("requester_name").HasMaxLength(200);
         ticket.Property(value => value.RequesterEmail).HasColumnName("requester_email").HasMaxLength(320);
+        ticket.Property(value => value.ContextJson).HasColumnName("context_json");
         ticket.Property(value => value.Priority).HasConversion<string>().HasMaxLength(32);
         ticket.Property(value => value.Status).HasConversion<string>().HasMaxLength(32);
         ticket.Property(value => value.Version).IsConcurrencyToken();

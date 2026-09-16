@@ -1,3 +1,6 @@
+using System.Text;
+using System.Text.Json;
+
 namespace Helpaffe.Domain.Tickets;
 
 public sealed class Ticket
@@ -18,7 +21,8 @@ public sealed class Ticket
         string requesterEmail,
         string initialMessage,
         DateTimeOffset createdAt,
-        Guid? initialEntryId = null)
+        Guid? initialEntryId = null,
+        string? contextJson = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("A ticket id is required.", nameof(id));
         if (projectId == Guid.Empty) throw new ArgumentException("A project id is required.", nameof(projectId));
@@ -27,6 +31,7 @@ public sealed class Ticket
         Required(requesterExternalId, nameof(requesterExternalId), 200);
         Required(requesterName, nameof(requesterName), 200);
         Required(requesterEmail, nameof(requesterEmail), 320);
+        ValidateContext(contextJson);
 
         var ticket = new Ticket
         {
@@ -37,6 +42,7 @@ public sealed class Ticket
             RequesterExternalId = requesterExternalId.Trim(),
             RequesterName = requesterName.Trim(),
             RequesterEmail = requesterEmail.Trim(),
+            ContextJson = contextJson,
             Status = TicketStatus.Open,
             Priority = TicketPriority.Normal,
             Version = 1,
@@ -57,6 +63,7 @@ public sealed class Ticket
     public string RequesterExternalId { get; private set; } = string.Empty;
     public string RequesterName { get; private set; } = string.Empty;
     public string RequesterEmail { get; private set; } = string.Empty;
+    public string? ContextJson { get; private set; }
     public Guid? AssigneeUserId { get; private set; }
     public TicketPriority Priority { get; private set; }
     public TicketStatus Status { get; private set; }
@@ -230,5 +237,15 @@ public sealed class Ticket
     {
         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("A value is required.", parameter);
         if (value.Trim().Length > maximumLength) throw new ArgumentOutOfRangeException(parameter);
+    }
+
+    private static void ValidateContext(string? contextJson)
+    {
+        if (contextJson is null) return;
+        if (Encoding.UTF8.GetByteCount(contextJson) > 16 * 1024)
+            throw new ArgumentOutOfRangeException(nameof(contextJson), "Ticket context may contain at most 16 KB of UTF-8 JSON.");
+        using var document = JsonDocument.Parse(contextJson);
+        if (document.RootElement.ValueKind is not JsonValueKind.Object)
+            throw new ArgumentException("Ticket context must be a JSON object.", nameof(contextJson));
     }
 }
