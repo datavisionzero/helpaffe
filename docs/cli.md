@@ -40,6 +40,8 @@ only the selected source names and never prints a credential. Product keys
 | `project email settings get`, `project email settings set` | Read or replace project SMTP, sender, recipient, branding, and link settings |
 | `project email template list`, `get`, `set`, `preview` | Manage and render the five fixed English notification templates |
 | `project email test` | Submit one rendered test message through project SMTP |
+| `solution list`, `solution get` | Search or read internal Markdown solutions in one visible project |
+| `solution create`, `solution update`, `solution delete` | Manage project-local solution articles with stable keys and versions |
 | `ticket list` | Filter and search visible tickets |
 | `ticket get` / `ticket context` | Read the full ticket conversation, technical creation context, and instructions |
 | `ticket requester-tickets` / `ticket related` | List other tickets for the same requester within the source ticket's project |
@@ -65,9 +67,9 @@ the browser interface and is deliberately absent from the CLI.
   empty.
 - Human-readable output is stable enough to read, but scripts depend only on
   `--json` and exit codes.
-- Acquisition, public replies, internal notes, snooze and development-reference changes, and notification retries get a
+- Acquisition, public replies, internal notes, solution writes, snooze and development-reference changes, and notification retries get a
   fresh UUID idempotency key per invocation.
-- Ticket writes require `--version N`; the client sends `If-Match: "N"` and
+- Ticket and solution writes require `--version N`; the client sends `If-Match: "N"` and
   reports stale data without retrying over it.
 - Requests send `User-Agent: helpaffe/<version> (<os>/<arch>)` and validate the
   server's `Helpaffe-Version` header.
@@ -78,7 +80,7 @@ the browser interface and is deliberately absent from the CLI.
 
 Short, single-line values use ordinary flags. Multiline or potentially long
 content always has an explicit file flag, such as `--message-file`,
-`--note-file`, or `--instructions-file`. A path reads UTF-8
+`--note-file`, `--instructions-file`, or `--markdown-file`. A path reads UTF-8
 from that file and `-` reads stdin. Stdin is never consumed implicitly. Supplying
 both an inline value and its file variant is a usage error. Input is preserved
 without hard wrapping and normalized to LF line endings.
@@ -98,6 +100,18 @@ password. Template text and HTML accept explicit inline or file inputs. Email
 configuration commands require an administrator agent and the server enforces
 that role on every request.
 
+Solution commands take the project id explicitly. For example, an agent can
+create an article without shell-quoting its Markdown:
+
+```sh
+helpaffe solution create 018f6b45-9e25-7def-a000-112233445566 \
+  --key postgres-restart --title "Restart PostgreSQL safely" --markdown-file - < runbook.md
+```
+
+`solution list` accepts `--search`, `--limit`, and `--cursor`. Article updates
+and deletes require the positive version returned by `solution get` or a prior
+write.
+
 ## Exit codes
 
 Exit codes are derived from HTTP status and problem code:
@@ -110,7 +124,7 @@ Exit codes are derived from HTTP status and problem code:
 | 3 | Resource not found or outside visible scope |
 | 4 | Validation or domain refusal that is not a conflict |
 | 5 | Conflict, including idempotency mismatch |
-| 6 | Stale ticket version |
+| 6 | Stale ticket or solution version |
 | 7 | Unauthenticated or forbidden |
 | 8 | No eligible ticket for a `next` operation |
 | 9 | Client/server version skew |

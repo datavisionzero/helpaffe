@@ -284,6 +284,102 @@ func TestTicketRequesterTicketsForwardsSameProjectHistoryFilters(t *testing.T) {
 	}
 }
 
+func TestSolutionUpdateUsesProjectScopeVersionIdempotencyAndStdin(t *testing.T) {
+	var received map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/projects/project-1/solutions/postgres-restart"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if request.Method != http.MethodPut {
+			t.Errorf("method = %q", request.Method)
+		}
+		if got, want := request.Header.Get("If-Match"), `"3"`; got != want {
+			t.Errorf("If-Match = %q, want %q", got, want)
+		}
+		if request.Header.Get("Idempotency-Key") == "" {
+			t.Error("Idempotency-Key is missing")
+		}
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "key": "postgres-restart", "version": 4 }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	root := New("1.2.3")
+	root.SetIn(strings.NewReader("First line.\r\n\r\nSecond line.\r\n"))
+	var output bytes.Buffer
+	if err := ExecuteForTest(root, &output, "--json", "solution", "update", "project-1", "postgres-restart",
+		"--version", "3", "--title", "Restart PostgreSQL", "--markdown-file", "-"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := received["title"], "Restart PostgreSQL"; got != want {
+		t.Fatalf("title = %q, want %q", got, want)
+	}
+	if got, want := received["markdown"], "First line.\n\nSecond line.\n"; got != want {
+		t.Fatalf("markdown = %q, want %q", got, want)
+	}
+	if got, want := output.String(), `{"key":"postgres-restart","version":4}`+"\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestSolutionListForwardsSearchPaginationAndDeleteWritesResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		switch request.Method {
+		case http.MethodGet:
+			if got, want := request.URL.Path, "/api/backoffice/projects/project-1/solutions"; got != want {
+				t.Errorf("path = %q, want %q", got, want)
+			}
+			if got, want := request.URL.Query().Get("search"), "database restart"; got != want {
+				t.Errorf("search = %q, want %q", got, want)
+			}
+			if got, want := request.URL.Query().Get("limit"), "10"; got != want {
+				t.Errorf("limit = %q, want %q", got, want)
+			}
+			if got, want := request.URL.Query().Get("cursor"), "opaque+/cursor"; got != want {
+				t.Errorf("cursor = %q, want %q", got, want)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"items":[],"next_cursor":null}`)
+		case http.MethodDelete:
+			if got, want := request.URL.Path, "/api/backoffice/projects/project-1/solutions/postgres-restart"; got != want {
+				t.Errorf("path = %q, want %q", got, want)
+			}
+			if got, want := request.Header.Get("If-Match"), `"4"`; got != want {
+				t.Errorf("If-Match = %q, want %q", got, want)
+			}
+			if request.Header.Get("Idempotency-Key") == "" {
+				t.Error("Idempotency-Key is missing")
+			}
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected method %q", request.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "solution", "list", "project-1",
+		"--search", "database restart", "--limit", "10", "--cursor", "opaque+/cursor"); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := ExecuteForTest(New("1.2.3"), &output, "--json", "solution", "delete", "project-1",
+		"postgres-restart", "--version", "4"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), `{"deleted":true,"key":"postgres-restart"}`+"\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
 func TestVersionConflictHasStableExitCodeAndMachineError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/problem+json")

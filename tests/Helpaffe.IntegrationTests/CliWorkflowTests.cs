@@ -78,6 +78,57 @@ public sealed class CliWorkflowTests : IAsyncLifetime
                 "sdk-create-hidden", cancellationToken);
             await BuildCli(root, cliPath, cancellationToken);
 
+            var createdSolution = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "solution", "create", setup.FirstProjectId.ToString(), "--key", "postgres-restart", "--title", "Restart PostgreSQL safely", "--markdown-file", "-"],
+                "Use the tested PostgreSQL restart playbook.\r\n", cancellationToken);
+            Assert.Equal(0, createdSolution.ExitCode);
+            using var createdSolutionJson = JsonDocument.Parse(createdSolution.StandardOutput);
+            Assert.Equal("postgres-restart", createdSolutionJson.RootElement.GetProperty("key").GetString());
+            Assert.Equal(1, createdSolutionJson.RootElement.GetProperty("version").GetInt32());
+
+            var hiddenSolution = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "solution", "create", setup.SecondProjectId.ToString(), "--key", "hidden", "--title", "Hidden", "--markdown", "Must not persist."],
+                null, cancellationToken);
+            Assert.Equal(3, hiddenSolution.ExitCode);
+            Assert.Empty(hiddenSolution.StandardOutput);
+
+            var searchedSolutions = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "solution", "list", setup.FirstProjectId.ToString(), "--search", "PostgreSQL"],
+                null, cancellationToken);
+            Assert.Equal(0, searchedSolutions.ExitCode);
+            using var searchedSolutionsJson = JsonDocument.Parse(searchedSolutions.StandardOutput);
+            Assert.Single(searchedSolutionsJson.RootElement.GetProperty("items").EnumerateArray());
+
+            var readSolution = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "solution", "get", setup.FirstProjectId.ToString(), "postgres-restart"],
+                null, cancellationToken);
+            Assert.Equal(0, readSolution.ExitCode);
+            using var readSolutionJson = JsonDocument.Parse(readSolution.StandardOutput);
+            Assert.Equal("Use the tested PostgreSQL restart playbook.\n",
+                readSolutionJson.RootElement.GetProperty("markdown").GetString());
+
+            var updatedSolution = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "solution", "update", setup.FirstProjectId.ToString(), "postgres-restart", "--version", "1", "--title", "Restart PostgreSQL", "--markdown-file", "-"],
+                "Use the current runbook.\n", cancellationToken);
+            Assert.Equal(0, updatedSolution.ExitCode);
+            using var updatedSolutionJson = JsonDocument.Parse(updatedSolution.StandardOutput);
+            Assert.Equal(2, updatedSolutionJson.RootElement.GetProperty("version").GetInt32());
+
+            var staleSolution = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "solution", "update", setup.FirstProjectId.ToString(), "postgres-restart", "--version", "1", "--title", "Stale", "--markdown", "Must not win."],
+                null, cancellationToken);
+            Assert.Equal(6, staleSolution.ExitCode);
+            Assert.Empty(staleSolution.StandardOutput);
+            using var staleSolutionJson = JsonDocument.Parse(staleSolution.StandardError);
+            Assert.Equal(2, staleSolutionJson.RootElement.GetProperty("current_version").GetInt32());
+
+            var deletedSolution = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "solution", "delete", setup.FirstProjectId.ToString(), "postgres-restart", "--version", "2"],
+                null, cancellationToken);
+            Assert.Equal(0, deletedSolution.ExitCode);
+            using var deletedSolutionJson = JsonDocument.Parse(deletedSolution.StandardOutput);
+            Assert.True(deletedSolutionJson.RootElement.GetProperty("deleted").GetBoolean());
+
             var searched = await RunCli(cliPath, baseUrl, setup.AgentToken,
                 ["--json", "ticket", "list", "--project", setup.FirstProjectId.ToString(), "--status", "open", "--search", "workflow"],
                 null, cancellationToken);

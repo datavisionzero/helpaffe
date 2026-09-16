@@ -36,6 +36,7 @@ func New(version string) *cobra.Command {
 		app.newStatusCommand(),
 		app.newMeCommand(),
 		app.newProjectCommand(),
+		app.newSolutionCommand(),
 		app.newTicketCommand(),
 	)
 	return root
