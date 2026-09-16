@@ -146,3 +146,26 @@ Bearer credentials are refused over plain HTTP outside loopback by official
 clients. Authentication logs contain credential kind, prefix, and actor id, but
 never a secret, session cookie, password, SMTP password, or full authorization
 header.
+
+## Initial browser-session operations
+
+The first backoffice slice uses these browser operations. All writes after
+sign-in require `X-Helpaffe-CSRF: 1`; administrative operations additionally
+require the `administrator` role.
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/backoffice/session` | Sign in with email and password and create the HTTP-only session cookie |
+| `DELETE /api/backoffice/session` | Revoke the current session and clear its cookie |
+| `GET /api/backoffice/me` | Read the signed-in user |
+| `GET /api/backoffice/projects` | List every project for an administrator or assigned projects for support |
+| `POST /api/backoffice/projects` | Create a project as an administrator |
+| `GET /api/backoffice/users` | List users and their project assignments as an administrator |
+| `POST /api/backoffice/users` | Create an administrator or support user |
+| `PATCH /api/backoffice/users/{id}` | Change role or activation state |
+| `PUT /api/backoffice/users/{userId}/projects/{projectId}` | Grant project access |
+| `DELETE /api/backoffice/users/{userId}/projects/{projectId}` | Revoke project access |
+
+User creation requires a password of at least 12 characters. The final active
+administrator cannot be deactivated or changed to support. Deactivating a user
+revokes all browser sessions immediately.

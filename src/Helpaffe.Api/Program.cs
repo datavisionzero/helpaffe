@@ -1,4 +1,5 @@
 using Helpaffe.Api.Hosting;
+using Helpaffe.Api.Http;
 using Helpaffe.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,9 @@ await using (var scope = app.Services.CreateAsyncScope())
         .CreateDbContextAsync();
     await database.Database.MigrateAsync();
 }
+await BootstrapAdministrator.EnsureAsync(app.Services, app.Configuration);
+
+app.Use(BackofficeSecurity.AuthenticateAsync);
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
@@ -36,6 +40,7 @@ app.MapGet("/api/backoffice/version", () => Results.Ok(new
 {
     version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
 }));
+app.MapBackoffice();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

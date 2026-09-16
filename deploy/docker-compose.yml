@@ -8,6 +8,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Database: Host=db;Port=5432;Database=helpaffe;Username=helpaffe;Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      Bootstrap__Name: ${HELPAFFE_BOOTSTRAP_NAME:-Administrator}
+      Bootstrap__Email: ${HELPAFFE_BOOTSTRAP_EMAIL:?set HELPAFFE_BOOTSTRAP_EMAIL in deploy/.env}
+      Bootstrap__Password: ${HELPAFFE_BOOTSTRAP_PASSWORD:?set HELPAFFE_BOOTSTRAP_PASSWORD in deploy/.env}
     ports:
       - "${HELPAFFE_HTTP_PORT:-5066}:8080"
     depends_on:

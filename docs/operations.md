@@ -70,6 +70,28 @@ deletes the database and is reserved for intentionally starting over.
 The stack contains the helpaffe application and PostgreSQL only. The MVP has no
 object store, upload service, or language service.
 
+## Initial administrator and access management
+
+On the first application start against an empty database, helpaffe creates one
+administrator from `HELPAFFE_BOOTSTRAP_NAME`, `HELPAFFE_BOOTSTRAP_EMAIL`, and
+`HELPAFFE_BOOTSTRAP_PASSWORD`. Use a unique password of at least 12 characters.
+The bootstrap values are ignored as soon as any user exists, so changing the
+environment later does not reset an account or create another administrator.
+They may be removed from the runtime environment after the first successful
+sign-in.
+
+Open `http://localhost:5066`, sign in, and use the **People** section to create
+users, choose the fixed Administrator or Support role, deactivate accounts, and
+assign projects to support users. Administrators can see every project. Support
+users see only projects explicitly assigned to them. Account deactivation and
+project-access removal take effect on the next request; deactivation also ends
+all of that user's browser sessions.
+
+At least one active administrator must remain. The application rejects attempts
+to deactivate or demote the last active administrator. Passwords and session
+tokens are stored only as hashes and must never be placed in logs or committed
+environment files.
+
 ## Persistence smoke test
 
 The repeatable verification for an empty database and a restart is:
