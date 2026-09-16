@@ -76,6 +76,20 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
 .scope { margin: 1rem 0; }
 .credential-action { margin-top: 1rem; }
 .product-key-form { grid-template-columns: 1fr; }
+.email-project { max-width: 28rem; margin: 1.5rem 0; }
+.email-settings, .template-admin { margin-top: 1.5rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.3rem; background: rgb(20 33 29 / 64%); }
+.email-settings h3 { margin-top: 0; }
+.email-settings > button { margin-top: 1rem; }
+.span-two { grid-column: 1 / -1; }
+.template-admin { display: grid; gap: 1rem; }
+.template-admin form { display: grid; gap: 0.9rem; }
+.template-variables { overflow-wrap: anywhere; color: #8fb8a7; font-family: "IBM Plex Mono", monospace; font-size: 0.76rem; }
+.email-actions, .email-test { display: flex; align-items: end; gap: 0.7rem; }
+.email-test label { flex: 1; }
+.email-preview { border: 1px solid #40564d; border-radius: 0.4rem; padding: 1rem; background: #101b17; }
+.email-preview h4 { margin-top: 0; }
+.email-preview pre { overflow-x: auto; white-space: pre-wrap; color: #b8c7c1; }
+.email-preview iframe { width: 100%; min-height: 18rem; border: 1px solid #d9e5e0; background: white; }
 .compact { padding: 0.5rem 0.75rem; }
 .global-banner { width: min(100% - 2rem, 80rem); margin: 1rem auto 0; }
 

@@ -184,6 +184,81 @@
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
+    },
+    "/projects/{projectId}/email-settings": {
+      "parameters": [{ "$ref": "#/components/parameters/ProjectId" }],
+      "get": {
+        "operationId": "getProjectEmailSettings",
+        "summary": "Read project email settings without returning the SMTP password",
+        "responses": {
+          "200": { "description": "Effective email settings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailSettings" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "operationId": "putProjectEmailSettings",
+        "summary": "Create or replace SMTP, sender, recipient, branding, and ticket-link settings",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PutEmailSettings" } } } },
+        "responses": {
+          "200": { "description": "Stored email settings with only password_configured exposed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailSettings" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/projects/{projectId}/email-templates": {
+      "parameters": [{ "$ref": "#/components/parameters/ProjectId" }],
+      "get": {
+        "operationId": "listProjectEmailTemplates",
+        "summary": "List all five effective English notification templates",
+        "responses": {
+          "200": { "description": "Default and customized templates", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/EmailTemplate" } } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/projects/{projectId}/email-templates/{type}": {
+      "parameters": [{ "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/EmailTemplateType" }],
+      "get": {
+        "operationId": "getProjectEmailTemplate",
+        "summary": "Read one effective English notification template",
+        "responses": {
+          "200": { "description": "Effective template", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailTemplate" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "operationId": "putProjectEmailTemplate",
+        "summary": "Create or replace a project template, rejecting unknown variables",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PutEmailTemplate" } } } },
+        "responses": {
+          "200": { "description": "Customized template", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailTemplate" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/projects/{projectId}/email-templates/{type}/preview": {
+      "parameters": [{ "$ref": "#/components/parameters/ProjectId" }, { "$ref": "#/components/parameters/EmailTemplateType" }],
+      "post": {
+        "operationId": "previewProjectEmailTemplate",
+        "summary": "Render a template with safe sample values",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TemplateSample" } } } },
+        "responses": {
+          "200": { "description": "Rendered subject, text, and HTML", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RenderedEmail" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/projects/{projectId}/email/test": {
+      "parameters": [{ "$ref": "#/components/parameters/ProjectId" }],
+      "post": {
+        "operationId": "sendProjectTestEmail",
+        "summary": "Render and submit one test email through the project's SMTP server",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestEmail" } } } },
+        "responses": {
+          "200": { "description": "The test message was submitted to SMTP" },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }, "502": { "description": "SMTP refused the test message", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } }
+        }
+      }
     }
   },
   "components": {
@@ -194,7 +269,9 @@
     "parameters": {
       "TicketNumber": { "name": "number", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 32 }, "example": "HLP-42" },
       "IfMatch": { "name": "If-Match", "in": "header", "required": true, "schema": { "type": "string", "pattern": "^\\\"[1-9][0-9]*\\\"$" }, "example": "\"8\"" },
-      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 200 } }
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 200 } },
+      "ProjectId": { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "EmailTemplateType": { "name": "type", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/EmailTemplateType" } }
     },
     "headers": {
       "ETag": { "description": "Quoted positive ticket version", "schema": { "type": "string" }, "example": "\"8\"" }
@@ -338,6 +415,121 @@
         "required": ["message"],
         "properties": { "message": { "type": "string", "minLength": 1 } },
         "additionalProperties": false
+      },
+      "EmailTemplateType": {
+        "type": "string",
+        "enum": ["new_ticket_customer", "new_ticket_support", "customer_reply_support", "public_reply_customer", "assignment_support"]
+      },
+      "EmailSettings": {
+        "type": "object",
+        "required": ["project_id", "project_name", "language", "smtp", "sender", "support_recipients", "branding", "ticket_links"],
+        "properties": {
+          "project_id": { "type": "string", "format": "uuid" },
+          "project_name": { "type": "string" },
+          "language": { "type": "string", "const": "en" },
+          "smtp": {
+            "type": "object", "required": ["host", "port", "use_tls", "username", "password_configured"],
+            "properties": {
+              "host": { "type": "string", "maxLength": 255 }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "use_tls": { "type": "boolean" }, "username": { "type": ["string", "null"], "maxLength": 320 },
+              "password_configured": { "type": "boolean", "description": "Indicates whether an encrypted password exists; the password and ciphertext are never returned" }
+            }, "additionalProperties": false
+          },
+          "sender": { "$ref": "#/components/schemas/EmailSender" },
+          "support_recipients": { "type": "array", "items": { "type": "string", "format": "email" } },
+          "branding": { "$ref": "#/components/schemas/EmailBranding" },
+          "ticket_links": { "$ref": "#/components/schemas/TicketLinks" }
+        },
+        "additionalProperties": false
+      },
+      "PutEmailSettings": {
+        "type": "object",
+        "required": ["language", "smtp", "sender", "support_recipients", "branding", "ticket_links"],
+        "properties": {
+          "language": { "type": "string", "const": "en" },
+          "smtp": {
+            "type": "object", "required": ["host", "port", "use_tls"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1, "maxLength": 255 }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "use_tls": { "type": "boolean" }, "username": { "type": ["string", "null"], "maxLength": 320 },
+              "password": { "type": ["string", "null"], "maxLength": 4096, "description": "Omit or null to preserve the existing encrypted password" }
+            }, "additionalProperties": false
+          },
+          "sender": { "$ref": "#/components/schemas/EmailSenderInput" },
+          "support_recipients": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "format": "email" } },
+          "branding": { "$ref": "#/components/schemas/EmailBranding" },
+          "ticket_links": { "$ref": "#/components/schemas/TicketLinksInput" }
+        },
+        "additionalProperties": false
+      },
+      "EmailSender": {
+        "type": "object", "required": ["name", "email"],
+        "properties": { "name": { "type": "string", "maxLength": 200 }, "email": { "type": "string", "maxLength": 320 } },
+        "additionalProperties": false
+      },
+      "EmailSenderInput": {
+        "type": "object", "required": ["name", "email"],
+        "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 }, "email": { "type": "string", "format": "email", "maxLength": 320 } },
+        "additionalProperties": false
+      },
+      "EmailBranding": {
+        "type": "object", "required": ["name", "logo_url", "color"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "logo_url": { "type": ["string", "null"], "format": "uri", "maxLength": 2048 },
+          "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+        }, "additionalProperties": false
+      },
+      "TicketLinks": {
+        "type": "object", "required": ["customer", "backoffice"],
+        "properties": {
+          "customer": { "type": "string", "maxLength": 2048 },
+          "backoffice": { "type": "string", "maxLength": 2048 }
+        }, "additionalProperties": false
+      },
+      "TicketLinksInput": {
+        "type": "object", "required": ["customer", "backoffice"],
+        "properties": {
+          "customer": { "type": "string", "format": "uri-template", "maxLength": 2048, "description": "Absolute HTTP(S) URL containing {{ticket_number}}" },
+          "backoffice": { "type": "string", "format": "uri-template", "maxLength": 2048, "description": "Absolute HTTP(S) URL containing {{ticket_number}}" }
+        }, "additionalProperties": false
+      },
+      "EmailTemplate": {
+        "type": "object",
+        "required": ["type", "description", "subject", "text_body", "html_body", "variables", "is_customized"],
+        "properties": {
+          "type": { "$ref": "#/components/schemas/EmailTemplateType" }, "description": { "type": "string" },
+          "subject": { "type": "string", "maxLength": 300 }, "text_body": { "type": "string", "maxLength": 65536 }, "html_body": { "type": "string", "maxLength": 65536 },
+          "variables": { "type": "array", "items": { "type": "string" } }, "is_customized": { "type": "boolean" }
+        }, "additionalProperties": false
+      },
+      "PutEmailTemplate": {
+        "type": "object", "required": ["subject", "text_body", "html_body"],
+        "properties": {
+          "subject": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "text_body": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "html_body": { "type": "string", "minLength": 1, "maxLength": 65536 }
+        }, "additionalProperties": false
+      },
+      "TemplateSample": {
+        "type": "object",
+        "properties": {
+          "customer_name": { "type": ["string", "null"] }, "customer_email": { "type": ["string", "null"] },
+          "ticket_number": { "type": ["string", "null"] }, "ticket_subject": { "type": ["string", "null"] },
+          "message": { "type": ["string", "null"] }, "assignee_name": { "type": ["string", "null"] }
+        }, "additionalProperties": false
+      },
+      "RenderedEmail": {
+        "type": "object", "required": ["subject", "text_body", "html_body"],
+        "properties": { "subject": { "type": "string" }, "text_body": { "type": "string" }, "html_body": { "type": "string" } },
+        "additionalProperties": false
+      },
+      "TestEmail": {
+        "type": "object", "required": ["recipient", "template_type"],
+        "properties": {
+          "recipient": { "type": "string", "format": "email" }, "template_type": { "$ref": "#/components/schemas/EmailTemplateType" },
+          "sample": { "oneOf": [{ "$ref": "#/components/schemas/TemplateSample" }, { "type": "null" }] }
+        }, "additionalProperties": false
       },
       "SupportInstructions": {
         "type": "object",

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Helpaffe.Domain.Tickets;
 using Helpaffe.Infrastructure.Identity;
+using Helpaffe.Infrastructure.Notifications;
 
 namespace Helpaffe.Infrastructure.Persistence;
 
@@ -18,6 +19,8 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<ConversationEntry> ConversationEntries => Set<ConversationEntry>();
+    public DbSet<ProjectEmailSettingsRecord> ProjectEmailSettings => Set<ProjectEmailSettingsRecord>();
+    public DbSet<ProjectEmailTemplateRecord> ProjectEmailTemplates => Set<ProjectEmailTemplateRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -124,5 +127,33 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         idempotency.Property(value => value.ResponseETag).HasMaxLength(32);
         idempotency.Property(value => value.ResponseBody);
         idempotency.HasIndex(value => value.ExpiresAt);
+
+        var emailSettings = modelBuilder.Entity<ProjectEmailSettingsRecord>();
+        emailSettings.ToTable("project_email_settings");
+        emailSettings.HasKey(value => value.ProjectId);
+        emailSettings.Property(value => value.Language).HasMaxLength(8);
+        emailSettings.Property(value => value.SmtpHost).HasColumnName("smtp_host").HasMaxLength(255);
+        emailSettings.Property(value => value.SmtpPort).HasColumnName("smtp_port");
+        emailSettings.Property(value => value.SmtpUseTls).HasColumnName("smtp_use_tls");
+        emailSettings.Property(value => value.SmtpUsername).HasColumnName("smtp_username").HasMaxLength(320);
+        emailSettings.Property(value => value.SmtpPasswordCiphertext).HasColumnName("smtp_password_ciphertext");
+        emailSettings.Property(value => value.SenderName).HasColumnName("sender_name").HasMaxLength(200);
+        emailSettings.Property(value => value.SenderEmail).HasColumnName("sender_email").HasMaxLength(320);
+        emailSettings.Property(value => value.SupportRecipientsJson).HasColumnName("support_recipients_json");
+        emailSettings.Property(value => value.BrandName).HasColumnName("brand_name").HasMaxLength(200);
+        emailSettings.Property(value => value.BrandLogoUrl).HasColumnName("brand_logo_url").HasMaxLength(2048);
+        emailSettings.Property(value => value.BrandColor).HasColumnName("brand_color").HasMaxLength(7);
+        emailSettings.Property(value => value.CustomerTicketUrlTemplate).HasColumnName("customer_ticket_url_template").HasMaxLength(2048);
+        emailSettings.Property(value => value.BackofficeTicketUrlTemplate).HasColumnName("backoffice_ticket_url_template").HasMaxLength(2048);
+        emailSettings.HasOne<ProjectRecord>().WithOne().HasForeignKey<ProjectEmailSettingsRecord>(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
+
+        var emailTemplate = modelBuilder.Entity<ProjectEmailTemplateRecord>();
+        emailTemplate.ToTable("project_email_templates");
+        emailTemplate.HasKey(value => new { value.ProjectId, value.Type });
+        emailTemplate.Property(value => value.Type).HasMaxLength(64);
+        emailTemplate.Property(value => value.Subject).HasMaxLength(300);
+        emailTemplate.Property(value => value.TextBody);
+        emailTemplate.Property(value => value.HtmlBody);
+        emailTemplate.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Cascade);
     }
 }

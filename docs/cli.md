@@ -37,6 +37,9 @@ only the selected source names and never prints a credential. Product keys
 | `project list` | List projects in the agent's scope |
 | `project create`, `project update` | Manage projects as an administrator agent |
 | `project instructions get`, `project instructions set` | Read or replace support instructions |
+| `project email settings get`, `project email settings set` | Read or replace project SMTP, sender, recipient, branding, and link settings |
+| `project email template list`, `get`, `set`, `preview` | Manage and render the five fixed English notification templates |
+| `project email test` | Submit one rendered test message through project SMTP |
 | `ticket list` | Filter and search visible tickets |
 | `ticket get` / `ticket context` | Read the full ticket conversation and instructions |
 | `ticket next` | Atomically acquire the next eligible ticket |
@@ -83,6 +86,12 @@ helpaffe ticket reply HLP-42 --version 7 --message-file - <<'EOF'
 Thanks for the details. The fix is available now.
 EOF
 ```
+
+SMTP passwords have no inline CLI flag. `project email settings set` accepts
+only `--smtp-password-file`; omitting it preserves an already configured
+password. Template text and HTML accept explicit inline or file inputs. Email
+configuration commands require an administrator agent and the server enforces
+that role on every request.
 
 ## Exit codes
 

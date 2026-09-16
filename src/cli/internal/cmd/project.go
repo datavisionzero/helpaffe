@@ -13,6 +13,7 @@ func (app *application) newProjectCommand() *cobra.Command {
 		app.newProjectCreateCommand(),
 		app.newProjectUpdateCommand(),
 		app.newInstructionsCommand(),
+		app.newEmailCommand(),
 	)
 	return project
 }

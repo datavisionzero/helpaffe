@@ -70,6 +70,20 @@ deletes the database and is reserved for intentionally starting over.
 The stack contains the helpaffe application and PostgreSQL only. The MVP has no
 object store, upload service, or language service.
 
+## SMTP secret encryption
+
+Set `HELPAFFE_SECRETS_ENCRYPTION_KEY` to one Base64-encoded 32-byte value before
+an administrator stores SMTP credentials. Generate it once, for example with
+`openssl rand -base64 32`, place it in the deployment's secret store, and keep
+it stable for the lifetime of the database. The application uses it for
+authenticated encryption of project SMTP passwords; API, Web, and CLI reads
+return only `password_configured` and never return plaintext or ciphertext.
+
+Losing or changing this key makes existing SMTP passwords unreadable. In that
+case restore the original key or replace each project's SMTP password after
+configuring a new key. Do not commit the key to this repository or expose it to
+product backends and browsers.
+
 ## Initial administrator and access management
 
 On the first application start against an empty database, helpaffe creates one

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { SupportWorkspace } from "./SupportWorkspace";
+import { EmailAdministration } from "./EmailAdministration";
 
 const user = { id: "support-1", email: "support@example.test", name: "Support", role: "support" as const };
 const project = { id: "project-1", key: "DOCS", name: "Documentation" };
@@ -128,6 +129,59 @@ it("keeps human administration behind its navigation entry", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Administration" }));
   expect(await screen.findByRole("heading", { name: "People" })).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Role for Support" })).toHaveValue("support");
+});
+
+it("manages project email settings, templates, previews, and test delivery", async () => {
+  const settings = {
+    project_id: project.id,
+    project_name: project.name,
+    language: "en",
+    smtp: { host: "smtp.example.test", port: 587, use_tls: true, username: "smtp-user", password_configured: true },
+    sender: { name: "Documentation", email: "support@example.test" },
+    support_recipients: ["team@example.test"],
+    branding: { name: "Docs", logo_url: null, color: "#336699" },
+    ticket_links: { customer: "https://docs.example/support/{{ticket_number}}", backoffice: "https://support.example/tickets/{{ticket_number}}" },
+  };
+  const template = {
+    type: "public_reply_customer",
+    description: "Customer reply template",
+    subject: "Reply {{ticket_number}}",
+    text_body: "Hello {{customer_name}}",
+    html_body: "<p>Hello {{customer_name}}</p>",
+    variables: ["customer_name", "ticket_number"],
+    is_customized: false,
+  };
+  const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const path = String(input);
+    if (path.endsWith(`/projects/${project.id}/email-settings`)) return response(settings);
+    if (path.endsWith(`/projects/${project.id}/email-templates`) && !init?.method) return response([template]);
+    if (path.endsWith("/email-templates/public_reply_customer") && init?.method === "PUT") return response({ ...template, is_customized: true, ...JSON.parse(String(init.body)) });
+    if (path.endsWith("/email-templates/public_reply_customer/preview")) return response({ subject: "Reply HLP-42", text_body: "Hello Avery", html_body: "<p>Hello Avery</p>" });
+    if (path.endsWith("/email/test")) return response({ status: "submitted_to_smtp" });
+    throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<EmailAdministration projects={[project]} />);
+
+  expect(await screen.findByDisplayValue("smtp.example.test")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("SMTP password"), { target: { value: "replacement-secret" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save email settings" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    `/api/backoffice/projects/${project.id}/email-settings`,
+    expect.objectContaining({ method: "PUT", body: expect.stringContaining("replacement-secret") }),
+  ));
+
+  fireEvent.change(await screen.findByLabelText("Subject"), { target: { value: "Updated {{ticket_number}}" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save template" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    `/api/backoffice/projects/${project.id}/email-templates/public_reply_customer`,
+    expect.objectContaining({ method: "PUT" }),
+  ));
+  fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+  expect(await screen.findByRole("heading", { name: "Reply HLP-42" })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Test recipient"), { target: { value: "admin@example.test" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send test email" }));
+  expect(await screen.findByText("Test email submitted to SMTP for admin@example.test.")).toBeInTheDocument();
 });
 
 function stubSupportApi(

@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { call, CurrentUser, message, Project, Role } from "./api";
+import { EmailAdministration } from "./EmailAdministration";
 
 type ManagedUser = CurrentUser & { is_active: boolean; project_ids: string[] };
 type AgentCredential = {
@@ -246,5 +247,6 @@ export function Administration({ user, projects, onProjectsChanged }: Props) {
         <button type="submit" disabled={projects.length === 0}>Create product key</button>
       </form>
     </section>}
+    {user.role === "administrator" && <EmailAdministration projects={projects} />}
   </div>;
 }

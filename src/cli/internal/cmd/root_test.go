@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -123,5 +125,71 @@ func TestRejectsProductCredential(t *testing.T) {
 	}
 	if problem.Type != "/problems/cli" || problem.ExitCode != 2 {
 		t.Fatalf("problem = %#v", problem)
+	}
+}
+
+func TestAdministratorAgentManagesEmailSettingsTemplatesPreviewAndTestDelivery(t *testing.T) {
+	received := map[string]map[string]any{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload map[string]any
+		if request.Method != http.MethodGet {
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			received[request.URL.Path] = payload
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{ "status": "ok" }`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+	passwordFile := filepath.Join(t.TempDir(), "smtp-password")
+	if err := os.WriteFile(passwordFile, []byte("smtp-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	settingsArgs := []string{"--json", "project", "email", "settings", "set", "project-1",
+		"--smtp-host", "smtp.example.test", "--smtp-port", "587", "--smtp-password-file", passwordFile,
+		"--sender-name", "Product", "--sender-email", "support@example.test",
+		"--support-recipient", "team@example.test", "--brand-name", "Product",
+		"--customer-ticket-link", "https://product.example.test/{{ticket_number}}",
+		"--backoffice-ticket-link", "https://support.example.test/{{ticket_number}}"}
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, settingsArgs...); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "--json", "project", "email", "template", "set", "project-1", "public_reply_customer",
+		"--subject", "Reply {{ticket_number}}", "--text", "Text {{message}}", "--html", "<p>{{message}}</p>"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "--json", "project", "email", "template", "preview", "project-1", "public_reply_customer",
+		"--ticket-number", "HLP-42", "--message", "Preview"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "--json", "project", "email", "test", "project-1",
+		"--recipient", "recipient@example.test", "--template", "public_reply_customer"); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := received["/api/backoffice/projects/project-1/email-settings"]
+	if got := settings["language"]; got != "en" {
+		t.Fatalf("language = %v", got)
+	}
+	smtp := settings["smtp"].(map[string]any)
+	if got := smtp["password"]; got != "smtp-secret" {
+		t.Fatalf("SMTP password = %v", got)
+	}
+	template := received["/api/backoffice/projects/project-1/email-templates/public_reply_customer"]
+	if got := template["text_body"]; got != "Text {{message}}" {
+		t.Fatalf("text body = %v", got)
+	}
+	preview := received["/api/backoffice/projects/project-1/email-templates/public_reply_customer/preview"]
+	if got := preview["ticket_number"]; got != "HLP-42" {
+		t.Fatalf("preview ticket number = %v", got)
+	}
+	testSend := received["/api/backoffice/projects/project-1/email/test"]
+	if got := testSend["recipient"]; got != "recipient@example.test" {
+		t.Fatalf("recipient = %v", got)
 	}
 }

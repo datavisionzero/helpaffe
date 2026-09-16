@@ -179,6 +179,11 @@ when an agent belongs to an administrator.
 | `GET /api/product/tickets/{number}?external_user_id=...` | Read that end user's ticket and public conversation |
 | `POST /api/product/tickets/{number}/replies` | Add a customer message to that end user's ticket |
 
+Administrator and administrator-agent notification configuration is defined in
+the backoffice OpenAPI contract and described in
+[`email.md`](email.md). Support users and their agents cannot read SMTP or
+template configuration, even for projects they can support.
+
 User creation requires a password of at least 12 characters. The final active
 administrator cannot be deactivated or changed to support. Deactivating a user
 revokes all browser sessions immediately.
