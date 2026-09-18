@@ -27,6 +27,7 @@ func (app *application) newTicketCommand() *cobra.Command {
 		app.newTicketStatusCommand("resolve", "resolved"),
 		app.newTicketStatusCommand("reopen", "open"),
 		app.newTicketNotificationCommand(),
+		app.newTicketAttachmentCommand(),
 	)
 	return ticket
 }
@@ -366,6 +367,7 @@ func (app *application) newTicketNextCommand() *cobra.Command {
 
 func (app *application) newTicketReplyCommand() *cobra.Command {
 	var message, messageFile, status string
+	var files []string
 	var version int
 	command := &cobra.Command{
 		Use:   "reply NUMBER",
@@ -379,6 +381,11 @@ func (app *application) newTicketReplyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			attachments, err := prepareAttachments(files)
+			if err != nil {
+				return err
+			}
+			defer closeAttachments(attachments)
 			client, err := app.apiClient()
 			if err != nil {
 				return err
@@ -387,10 +394,19 @@ func (app *application) newTicketReplyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			body, _, err := client.request(http.MethodPost, "/api/backoffice/tickets/"+url.PathEscape(args[0])+"/replies", map[string]any{
-				"message": content,
-				"status":  status,
-			}, version, key)
+			path := "/api/backoffice/tickets/" + url.PathEscape(args[0]) + "/replies"
+			var body []byte
+			if len(attachments) == 0 {
+				body, _, err = client.request(http.MethodPost, path, map[string]any{
+					"message": content,
+					"status":  status,
+				}, version, key)
+			} else {
+				body, _, err = client.requestMultipart(http.MethodPost, path, []multipartField{
+					{name: "message", value: content},
+					{name: "status", value: status},
+				}, attachments, version, key)
+			}
 			if err != nil {
 				return err
 			}
@@ -401,11 +417,13 @@ func (app *application) newTicketReplyCommand() *cobra.Command {
 	command.Flags().StringVar(&status, "status", "", "in_progress, waiting_for_customer, or resolved")
 	command.Flags().StringVar(&message, "message", "", "short inline reply")
 	command.Flags().StringVar(&messageFile, "message-file", "", "read the reply from a file or - for stdin")
+	command.Flags().StringArrayVar(&files, "file", nil, "attach a file (repeat up to five times)")
 	return command
 }
 
 func (app *application) newTicketNoteCommand() *cobra.Command {
 	var note, noteFile string
+	var files []string
 	var version int
 	command := &cobra.Command{
 		Use:   "note NUMBER",
@@ -419,6 +437,11 @@ func (app *application) newTicketNoteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			attachments, err := prepareAttachments(files)
+			if err != nil {
+				return err
+			}
+			defer closeAttachments(attachments)
 			client, err := app.apiClient()
 			if err != nil {
 				return err
@@ -427,7 +450,14 @@ func (app *application) newTicketNoteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			body, _, err := client.request(http.MethodPost, "/api/backoffice/tickets/"+url.PathEscape(args[0])+"/notes", map[string]any{"message": content}, version, key)
+			path := "/api/backoffice/tickets/" + url.PathEscape(args[0]) + "/notes"
+			var body []byte
+			if len(attachments) == 0 {
+				body, _, err = client.request(http.MethodPost, path, map[string]any{"message": content}, version, key)
+			} else {
+				body, _, err = client.requestMultipart(http.MethodPost, path,
+					[]multipartField{{name: "message", value: content}}, attachments, version, key)
+			}
 			if err != nil {
 				return err
 			}
@@ -437,6 +467,7 @@ func (app *application) newTicketNoteCommand() *cobra.Command {
 	command.Flags().IntVar(&version, "version", 0, "last-read positive ticket version")
 	command.Flags().StringVar(&note, "note", "", "short inline note")
 	command.Flags().StringVar(&noteFile, "note-file", "", "read the note from a file or - for stdin")
+	command.Flags().StringArrayVar(&files, "file", nil, "attach a private file (repeat up to five times)")
 	return command
 }
 

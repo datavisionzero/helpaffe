@@ -111,20 +111,12 @@ func (client *client) request(method, path string, payload any, version int, ide
 		}
 		body = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequest(method, client.baseURL+path, body)
+	request, err := client.newRequest(method, path, body, version, idempotencyKey)
 	if err != nil {
 		return nil, nil, &exitError{code: 2, message: err.Error()}
 	}
-	request.Header.Set("Authorization", "Bearer "+client.token)
-	request.Header.Set("User-Agent", fmt.Sprintf("helpaffe/%s (%s/%s)", client.version, runtime.GOOS, runtime.GOARCH))
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")
-	}
-	if version > 0 {
-		request.Header.Set("If-Match", fmt.Sprintf("\"%d\"", version))
-	}
-	if idempotencyKey != "" {
-		request.Header.Set("Idempotency-Key", idempotencyKey)
 	}
 	response, err := client.http.Do(request)
 	if err != nil {
@@ -135,13 +127,43 @@ func (client *client) request(method, path string, payload any, version int, ide
 	if err != nil {
 		return nil, nil, &exitError{code: 10, message: err.Error()}
 	}
-	if serverVersion := response.Header.Get("Helpaffe-Version"); serverVersion != "" && versionCore(serverVersion) != versionCore(client.version) {
-		return nil, nil, &exitError{code: 9, message: fmt.Sprintf("client/server version mismatch: client %s, server %s", client.version, serverVersion)}
+	if err := client.validateServerVersion(response.Header); err != nil {
+		return nil, nil, err
 	}
 	if response.StatusCode >= 400 {
 		return nil, response.Header, parseAPIError(response.StatusCode, responseBody)
 	}
 	return responseBody, response.Header, nil
+}
+
+func (client *client) newRequest(
+	method, path string,
+	body io.Reader,
+	version int,
+	idempotencyKey string,
+) (*http.Request, error) {
+	request, err := http.NewRequest(method, client.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+client.token)
+	request.Header.Set("User-Agent", fmt.Sprintf("helpaffe/%s (%s/%s)", client.version, runtime.GOOS, runtime.GOARCH))
+	if version > 0 {
+		request.Header.Set("If-Match", fmt.Sprintf("\"%d\"", version))
+	}
+	if idempotencyKey != "" {
+		request.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	return request, nil
+}
+
+func (client *client) validateServerVersion(headers http.Header) error {
+	serverVersion := headers.Get("Helpaffe-Version")
+	if serverVersion != "" && versionCore(serverVersion) != versionCore(client.version) {
+		return &exitError{code: 9, message: fmt.Sprintf(
+			"client/server version mismatch: client %s, server %s", client.version, serverVersion)}
+	}
+	return nil
 }
 
 func parseAPIError(status int, body []byte) error {
@@ -156,7 +178,9 @@ func parseAPIError(status int, body []byte) error {
 		code = 8
 	case status == http.StatusNotFound:
 		code = 3
-	case status == http.StatusBadRequest || status == http.StatusUnprocessableEntity || status == http.StatusPreconditionRequired:
+	case status == http.StatusBadRequest || status == http.StatusRequestEntityTooLarge ||
+		status == http.StatusUnsupportedMediaType || status == http.StatusUnprocessableEntity ||
+		status == http.StatusPreconditionRequired:
 		code = 4
 	case status == http.StatusConflict:
 		code = 5
