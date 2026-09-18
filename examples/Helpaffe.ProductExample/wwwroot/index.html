@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Product support example</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+    body { margin: 0 auto; max-width: 60rem; padding: 2rem 1rem 5rem; }
+    h1, h2 { line-height: 1.15; }
+    form, article { border: 1px solid #8886; border-radius: .75rem; padding: 1rem; margin: 1rem 0; }
+    label { display: grid; gap: .25rem; margin: .75rem 0; }
+    input, textarea, button { font: inherit; padding: .6rem; }
+    textarea { min-height: 6rem; resize: vertical; }
+    button { cursor: pointer; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+    .entry { border-inline-start: .25rem solid #6080ff; padding-inline-start: 1rem; margin: 1rem 0; }
+    .attachments { display: flex; flex-wrap: wrap; gap: .5rem; }
+    #status { min-height: 1.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Product support example</h1>
+  <p>This page calls only its own product backend. The helpaffe product key stays on the server.</p>
+
+  <label>Example signed-in user id <input id="user" value="customer-7" required></label>
+
+  <form id="create">
+    <h2>Create a ticket</h2>
+    <div class="row">
+      <label>Subject <input name="subject" required></label>
+      <label>Product version <input name="productVersion" value="1.0.0" required></label>
+    </div>
+    <label>Message <textarea name="message" required></textarea></label>
+    <label>Attachments <input name="files" type="file" multiple></label>
+    <input name="page" type="hidden" value="/support">
+    <button>Create ticket</button>
+  </form>
+
+  <form id="open">
+    <h2>Open a ticket</h2>
+    <label>Ticket number <input name="number" placeholder="HLP-…" required></label>
+    <button>Load ticket</button>
+  </form>
+
+  <p id="status" role="status"></p>
+  <section id="ticket" hidden>
+    <h2 id="ticket-heading"></h2>
+    <div id="conversation"></div>
+    <form id="reply">
+      <h2>Add a customer reply</h2>
+      <label>Message <textarea name="message" required></textarea></label>
+      <label>Attachments <input name="files" type="file" multiple></label>
+      <button>Send reply</button>
+    </form>
+  </section>
+
+  <script>
+    const user = document.querySelector('#user');
+    const status = document.querySelector('#status');
+    const ticketSection = document.querySelector('#ticket');
+    const conversation = document.querySelector('#conversation');
+    let currentTicket = null;
+
+    async function request(path, options = {}) {
+      options.headers = { ...(options.headers || {}), 'X-Example-User-Id': user.value };
+      const response = await fetch(path, options);
+      if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+      return response;
+    }
+
+    function render(ticket) {
+      currentTicket = ticket;
+      ticketSection.hidden = false;
+      document.querySelector('#ticket-heading').textContent = `${ticket.summary.number}: ${ticket.summary.subject}`;
+      document.querySelector('#open [name=number]').value = ticket.summary.number;
+      conversation.replaceChildren();
+      for (const entry of ticket.conversation) {
+        const article = document.createElement('article');
+        article.className = 'entry';
+        const heading = document.createElement('strong');
+        heading.textContent = entry.kind.replaceAll('_', ' ');
+        const body = document.createElement('p');
+        body.textContent = entry.body;
+        const files = document.createElement('div');
+        files.className = 'attachments';
+        for (const attachment of entry.attachments) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = `${attachment.file_name} (${attachment.size} bytes)`;
+          button.addEventListener('click', () => download(ticket.summary.number, attachment));
+          files.append(button);
+        }
+        article.append(heading, body, files);
+        conversation.append(article);
+      }
+    }
+
+    async function download(number, attachment) {
+      status.textContent = `Downloading ${attachment.file_name}…`;
+      try {
+        const response = await request(`/support/tickets/${encodeURIComponent(number)}/attachments/${attachment.id}`);
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = attachment.file_name;
+        link.click();
+        URL.revokeObjectURL(url);
+        status.textContent = `Downloaded ${attachment.file_name}.`;
+      } catch (error) { status.textContent = error.message; }
+    }
+
+    document.querySelector('#create').addEventListener('submit', async event => {
+      event.preventDefault();
+      status.textContent = 'Creating ticket…';
+      const data = new FormData(event.currentTarget);
+      data.set('requestId', crypto.randomUUID());
+      try {
+        const response = await request('/support/tickets', { method: 'POST', body: data });
+        render(await response.json());
+        status.textContent = 'Ticket created.';
+      } catch (error) { status.textContent = error.message; }
+    });
+
+    document.querySelector('#open').addEventListener('submit', async event => {
+      event.preventDefault();
+      status.textContent = 'Loading ticket…';
+      const number = new FormData(event.currentTarget).get('number');
+      try {
+        const response = await request(`/support/tickets/${encodeURIComponent(number)}`);
+        render(await response.json());
+        status.textContent = 'Ticket loaded.';
+      } catch (error) { status.textContent = error.message; }
+    });
+
+    document.querySelector('#reply').addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!currentTicket) return;
+      const form = event.currentTarget;
+      status.textContent = 'Sending reply…';
+      const data = new FormData(form);
+      data.set('requestId', crypto.randomUUID());
+      data.set('version', currentTicket.summary.version);
+      try {
+        const response = await request(`/support/tickets/${encodeURIComponent(currentTicket.summary.number)}/replies`,
+          { method: 'POST', body: data });
+        render(await response.json());
+        form.reset();
+        status.textContent = 'Reply sent.';
+      } catch (error) { status.textContent = error.message; }
+    });
+  </script>
+</body>
+</html>

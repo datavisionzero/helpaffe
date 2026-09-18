@@ -49,6 +49,7 @@ public sealed class HelpaffeProductClientTests
 
         Assert.Equal(ProductTicketStatus.Open, created.Summary.Status);
         Assert.Equal("2.4.1", created.Context?.GetProperty("version").GetString());
+        Assert.Equal("evidence.txt", Assert.Single(created.Conversation[0].Attachments).FileName);
         Assert.Single(page.Items);
         Assert.Equal(ProductTicketStatus.Resolved, read.Summary.Status);
         Assert.Equal(4, replied.Summary.Version);
@@ -83,6 +84,62 @@ public sealed class HelpaffeProductClientTests
         Assert.Equal("stale", exception.Code);
         Assert.Equal(9, exception.CurrentVersion);
         Assert.Equal("Read again.", exception.Detail);
+    }
+
+    [Fact]
+    public async Task Attachments_are_streamed_as_multipart_and_downloaded_without_exposing_the_key_in_a_URL()
+    {
+        var calls = 0;
+        using var upload = new MemoryStream("streamed evidence"u8.ToArray());
+        using var httpClient = new HttpClient(new DelegateHandler(async (request, cancellationToken) =>
+        {
+            calls++;
+            Assert.Equal("Bearer hfp_test-secret", request.Headers.Authorization?.ToString());
+            if (calls == 1)
+            {
+                Assert.Equal("multipart/form-data", request.Content?.Headers.ContentType?.MediaType);
+                var body = Encoding.UTF8.GetString(await request.Content!.ReadAsByteArrayAsync(cancellationToken));
+                Assert.Contains("external_user_id", body, StringComparison.Ordinal);
+                Assert.Contains("customer-7", body, StringComparison.Ordinal);
+                Assert.Contains("evidence.txt", body, StringComparison.Ordinal);
+                Assert.Contains("streamed evidence", body, StringComparison.Ordinal);
+                return Json(HttpStatusCode.Created, TicketJson("HLP-FILE", "open", 1, "null"));
+            }
+
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Contains("/attachments/00000000-0000-0000-0000-000000000003", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            Assert.Equal("customer-7", Uri.UnescapeDataString(QueryValue(request.RequestUri, "external_user_id")));
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent("downloaded evidence"u8.ToArray()),
+            };
+            response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+            response.Content.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("attachment")
+            {
+                FileName = "evidence.txt",
+            };
+            return response;
+        }));
+        var client = new HelpaffeProductClient(httpClient, new Uri("https://helpaffe.example.test"), "hfp_test-secret");
+
+        var ticket = await client.CreateTicketAsync(
+            new CreateProductTicket("customer-7", "Ada", "ada@example.test", "Evidence", "See file"),
+            "create-file",
+            [new ProductAttachmentUpload("evidence.txt", "text/plain", upload)],
+            TestContext.Current.CancellationToken);
+        Assert.True(upload.CanRead);
+        var attachment = Assert.Single(ticket.Conversation[0].Attachments);
+
+        await using var download = await client.DownloadAttachmentAsync(
+            ticket.Summary.Number,
+            "customer-7",
+            attachment.Id,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("evidence.txt", download.FileName);
+        Assert.Equal("text/plain", download.MediaType);
+        using var reader = new StreamReader(download.Content, Encoding.UTF8, leaveOpen: true);
+        Assert.Equal("downloaded evidence", await reader.ReadToEndAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -132,7 +189,14 @@ public sealed class HelpaffeProductClientTests
             "sequence": 1,
             "kind": "customer_message",
             "body": "Please help",
-            "created_at": "2026-09-16T12:00:00Z"
+            "created_at": "2026-09-16T12:00:00Z",
+            "attachments": [{
+              "id": "00000000-0000-0000-0000-000000000003",
+              "file_name": "evidence.txt",
+              "media_type": "text/plain",
+              "size": 17,
+              "created_at": "2026-09-16T12:00:00Z"
+            }]
           }]
         }
         """;

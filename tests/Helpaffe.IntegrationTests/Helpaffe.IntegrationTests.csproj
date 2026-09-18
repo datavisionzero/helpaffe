@@ -6,6 +6,7 @@
     <ProjectReference Include="../../src/Helpaffe.Infrastructure/Helpaffe.Infrastructure.csproj" />
     <ProjectReference Include="../../src/Helpaffe.Api/Helpaffe.Api.csproj" />
     <ProjectReference Include="../../src/Helpaffe.Sdk/Helpaffe.Sdk.csproj" />
+    <ProjectReference Include="../../examples/Helpaffe.ProductExample/Helpaffe.ProductExample.csproj" Aliases="ProductExample" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
