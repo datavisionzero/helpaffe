@@ -182,11 +182,32 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
 .entry-kind { color: #a9cbbb; letter-spacing: 0.05em; text-transform: uppercase; }
 .internal_note .entry-kind { color: #e0c77c; }
 .entry-actor { display: block; margin-top: 0.8rem; color: #82968d; font-size: 0.75rem; }
+.entry-attachments, .selected-attachments { display: grid; gap: 0.55rem; margin: 0.9rem 0 0; padding: 0; list-style: none; }
+.entry-attachments li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; border: 1px solid #354b42; border-radius: 0.4rem; padding: 0.65rem 0.75rem; background: #101b17; }
+.entry-attachments a { display: grid; min-width: 0; gap: 0.18rem; color: #d8eee4; text-decoration: none; }
+.entry-attachments a:hover .attachment-name { text-decoration: underline; }
+.attachment-name { overflow-wrap: anywhere; font-weight: 650; }
+.attachment-meta { overflow-wrap: anywhere; color: #82968d; font-family: "IBM Plex Mono", monospace; font-size: 0.68rem; }
+.attachment-visibility { flex: 0 0 auto; border-radius: 999px; padding: 0.22rem 0.48rem; font-family: "IBM Plex Mono", monospace; font-size: 0.62rem; letter-spacing: 0.03em; text-transform: uppercase; }
+.attachment-visibility.public { color: #b8dacb; background: #203a31; }
+.attachment-visibility.internal { color: #f0d88e; background: #463d20; }
 .composer { margin-top: 1.5rem; border: 1px solid #40564d; border-radius: 0.5rem; padding: 1rem; background: #101b17; }
 .composer-tabs { display: flex; gap: 0.3rem; margin-bottom: 1rem; }
 .composer form { display: grid; gap: 0.9rem; }
+.attachment-picker { margin: 0; border: 1px dashed #40564d; border-radius: 0.45rem; padding: 0.9rem; }
+.attachment-picker.internal { border-color: #655936; background: #211f16; }
+.attachment-picker legend { color: #a9cbbb; }
+.attachment-picker.internal legend { color: #e0c77c; }
+.attachment-guidance { margin: 0 0 0.75rem; color: #91a39b; font-size: 0.76rem; line-height: 1.5; }
+.attachment-picker input[type="file"] { padding: 0.45rem; font-size: 0.8rem; }
+.attachment-error { margin: 0.7rem 0 0; color: #ffc0af; font-size: 0.82rem; }
+.selected-attachments li { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; border-top: 1px solid #2b3c35; padding-top: 0.55rem; }
+.selected-attachments li > span { display: grid; min-width: 0; gap: 0.15rem; }
+.selected-attachments strong { overflow-wrap: anywhere; color: #dce7e2; font-size: 0.84rem; }
+.selected-attachments small { color: #82968d; font-family: "IBM Plex Mono", monospace; font-size: 0.65rem; }
 .composer-actions { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
 .composer-actions label { min-width: 13rem; }
+.composer-status { margin: 0.8rem 0 0; color: #a9cbbb; font-size: 0.8rem; }
 .note-button { color: #1d1d12; background: #d6bd72; }
 .ticket-sidebar { display: grid; align-content: start; gap: 1rem; }
 .ticket-fields, .snooze-card, .development-references, .requester-card, .related-tickets, .ticket-context, .notification-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid #32483f; border-radius: 0.5rem; padding: 1.1rem; background: #14211d; }
@@ -247,4 +268,6 @@ legend { padding: 0 0.7rem 0 0; color: #8fb8a7; font-size: 0.78rem; text-transfo
   .ticket-sidebar { grid-template-columns: 1fr; }
   .instructions, .ticket-context { grid-column: auto; }
   .conversation-entry.public_reply, .conversation-entry.internal_note { margin-inline: 0; }
+  .entry-attachments li, .selected-attachments li { align-items: stretch; flex-direction: column; }
+  .attachment-visibility, .selected-attachments button { align-self: flex-start; }
 }

@@ -31,8 +31,11 @@ builds the actual Go CLI, and runs one coherent scenario:
    project. Combined CLI search filters return only its two tickets, requester
    history contains only the related first-project ticket, and reading the
    second-project ticket returns not found.
-4. Acquire the primary ticket through the CLI, add an internal note, reply
-   publicly, and move it to Waiting for customer.
+4. Acquire the primary ticket through the CLI, add an internal note with a
+   private attachment, reply publicly with a customer-visible attachment, and
+   move it to Waiting for customer. Download the private file through the CLI,
+   reject an overwrite, and prove that the Product API exposes only the public
+   file.
 5. Reply through the SDK. The ticket reopens. Repeat the identical SDK request
    with the same idempotency key, representing an unknown response after a
    connection break; the version and conversation remain unchanged.
@@ -48,7 +51,9 @@ idempotent. `NotificationDeliveryTests` proves persistence across an application
 restart, both assigned and unassigned recipient routing, SMTP outage retries at
 1, 5, and 30 minutes, terminal failure visibility, and manual retry without a
 new ticket reply. The Web tests prove that combined search filters, technical
-context, requester-history navigation, and delivery retry are rendered and
+context, requester-history navigation, delivery retry, attachment selection,
+multipart upload, visibility labels, safe downloads, local limits, loading
+state, and draft/file preservation across stale conflicts are rendered and
 call the same backoffice contract.
 
 ## Operator walkthrough
@@ -77,15 +82,17 @@ helpaffe ticket list --project PROJECT_UUID --status open --search settings
 helpaffe ticket next --project PROJECT_UUID
 helpaffe ticket get HLP-NUMBER
 helpaffe ticket reply HLP-NUMBER --version 2 \
-  --status waiting_for_customer --message-file reply.txt
+  --status waiting_for_customer --message-file reply.txt --file screenshot.png
 ```
 
 Reply from the product with the last-read version. Confirm that its status is
 Open, then send a final CLI reply with `--status resolved`. In the Web ticket,
-review the assignee, public and internal history, technical context, other
-requester tickets, and email delivery states. Use the second product with the
-same external user id and confirm it never appears in first-project search or
-requester history.
+review the assignee, public and internal history, attachment names, media types,
+sizes and visibility labels, technical context, other requester tickets, and
+email delivery states. Add one public reply attachment and one internal-note
+attachment, download both, and confirm a stale conflict keeps the message draft
+and selected files. Use the second product with the same external user id and
+confirm it never appears in first-project search or requester history.
 
 For a controlled SMTP outage, point a non-production project at an unavailable
 test SMTP port, create a notification-producing event, and observe `pending`

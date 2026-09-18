@@ -20,12 +20,13 @@ export class RequestError extends Error {
 }
 
 export async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const formData = init?.body instanceof FormData;
   const response = await fetch(`/api/backoffice${path}`, {
     credentials: "same-origin",
     ...init,
     headers: {
       ...(init?.method && init.method !== "GET"
-        ? { "X-Helpaffe-CSRF": "1", "Content-Type": "application/json" }
+        ? { "X-Helpaffe-CSRF": "1", ...(formData ? {} : { "Content-Type": "application/json" }) }
         : {}),
       ...init?.headers,
     },

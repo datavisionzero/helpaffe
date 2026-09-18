@@ -31,10 +31,13 @@ const detail = {
   development_references: [],
   notifications: [],
   conversation: [
-    { id: "entry-1", sequence: 1, kind: "customer_message", body: "Everything is blank.", is_public: true, created_at: now, actor: null },
-    { id: "entry-2", sequence: 2, kind: "public_reply", body: "We are checking.", is_public: true, created_at: now, actor: { user_name: "Support", agent_name: null } },
-    { id: "entry-3", sequence: 3, kind: "internal_note", body: "Reproduced.", is_public: false, created_at: now, actor: { user_name: "Support", agent_name: "Triage" } },
-    { id: "entry-4", sequence: 4, kind: "system_event", body: "Priority changed to Urgent.", is_public: false, created_at: now, actor: { user_name: "Support", agent_name: null } },
+    { id: "entry-1", sequence: 1, kind: "customer_message", body: "Everything is blank.", is_public: true, created_at: now, actor: null,
+      attachments: [{ id: "attachment-customer", file_name: "blank-screen.png", media_type: "image/png", size: 1536, is_public: true, created_at: now }] },
+    { id: "entry-2", sequence: 2, kind: "public_reply", body: "We are checking.", is_public: true, created_at: now, actor: { user_name: "Support", agent_name: null },
+      attachments: [{ id: "attachment-public", file_name: "steps.json", media_type: "application/json", size: 42, is_public: true, created_at: now }] },
+    { id: "entry-3", sequence: 3, kind: "internal_note", body: "Reproduced.", is_public: false, created_at: now, actor: { user_name: "Support", agent_name: "Triage" },
+      attachments: [{ id: "attachment-internal", file_name: "trace.txt", media_type: "text/plain", size: 2048, is_public: false, created_at: now }] },
+    { id: "entry-4", sequence: 4, kind: "system_event", body: "Priority changed to Urgent.", is_public: false, created_at: now, actor: { user_name: "Support", agent_name: null }, attachments: [] },
   ],
 };
 
@@ -95,6 +98,13 @@ it("shows the shared queues, filters, full context, and distinct conversation ki
   expect(screen.getAllByText("Public reply")).toHaveLength(2);
   expect(screen.getAllByText("Internal note")).toHaveLength(2);
   expect(screen.getByText("System event")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Download blank-screen.png" })).toHaveAttribute(
+    "href", "/api/backoffice/tickets/HLP-42/attachments/attachment-customer");
+  expect(screen.getByRole("link", { name: "Download trace.txt" })).toHaveAttribute(
+    "href", "/api/backoffice/tickets/HLP-42/attachments/attachment-internal");
+  expect(screen.getAllByText("Customer-visible")).toHaveLength(2);
+  expect(screen.getByText("Internal only")).toBeInTheDocument();
+  expect(screen.getByText("image/png · 1.5 KiB")).toBeInTheDocument();
   expect(screen.getByText("Ask for the release number before replying.")).toBeInTheDocument();
   expect(screen.getByText(/"release": "2.4.1"/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /HLP-41.*Earlier settings issue/s }));
@@ -116,7 +126,7 @@ it("combines full-text search with project and status filters", async () => {
   )).toBe(true));
 });
 
-it("sends a public reply with the last-read version and an idempotency key", async () => {
+it("sends a public reply and selected files as multipart with concurrency protection", async () => {
   const fetch = stubSupportApi(async (path, init) => {
     if (path.endsWith("/tickets/HLP-42/replies") && init?.method === "POST") {
       return response({ ...detail, summary: { ...summary, status: "waiting_for_customer", version: 5 } });
@@ -126,6 +136,9 @@ it("sends a public reply with the last-read version and an idempotency key", asy
   render(<SupportWorkspace user={user} projects={[project]} />);
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
   fireEvent.change(await screen.findByRole("textbox", { name: "Public reply" }), { target: { value: "Please try again now." } });
+  const evidence = new File(["browser evidence"], "evidence.txt", { type: "text/plain", lastModified: 1 });
+  fireEvent.change(screen.getByLabelText("Attach files to public reply"), { target: { files: [evidence] } });
+  expect(screen.getByRole("list", { name: "Selected public attachments" })).toHaveTextContent("evidence.txt");
   fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
 
   await waitFor(() => expect(fetch).toHaveBeenCalledWith(
@@ -135,7 +148,69 @@ it("sends a public reply with the last-read version and an idempotency key", asy
       headers: expect.objectContaining({ "If-Match": '"4"', "Idempotency-Key": expect.any(String) }),
     }),
   ));
+  const replyCall = fetch.mock.calls.find(([path]) => String(path).endsWith("/tickets/HLP-42/replies"));
+  const body = replyCall?.[1]?.body as FormData;
+  expect(body).toBeInstanceOf(FormData);
+  expect(body.get("message")).toBe("Please try again now.");
+  expect(body.get("status")).toBe("waiting_for_customer");
+  expect(body.getAll("files")).toEqual([evidence]);
+  expect(replyCall?.[1]?.headers).not.toHaveProperty("Content-Type");
   expect(await screen.findByRole("textbox", { name: "Public reply" })).toHaveValue("");
+  expect(screen.queryByRole("list", { name: "Selected public attachments" })).not.toBeInTheDocument();
+  expect(screen.getByText("Public reply sent with 1 attachment.")).toBeInTheDocument();
+});
+
+it("shows upload state and keeps invalid selections from being submitted", async () => {
+  let finishReply: ((value: ReturnType<typeof response>) => void) | undefined;
+  const fetch = stubSupportApi(async (path, init) => {
+    if (path.endsWith("/tickets/HLP-42/replies") && init?.method === "POST") {
+      return await new Promise<ReturnType<typeof response>>(resolve => { finishReply = resolve; });
+    }
+    return null;
+  });
+  render(<SupportWorkspace user={user} projects={[project]} />);
+  fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "Public reply" }), { target: { value: "Uploading now." } });
+  const evidence = new File(["evidence"], "evidence.txt", { type: "text/plain" });
+  fireEvent.change(screen.getByLabelText("Attach files to public reply"), { target: { files: [evidence] } });
+  fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+  expect(await screen.findByRole("button", { name: "Sending…" })).toBeDisabled();
+  expect(screen.getByText("Uploading public reply with 1 attachment…")).toBeInTheDocument();
+  finishReply?.(response({ ...detail, summary: { ...summary, version: 5 } }));
+  expect(await screen.findByText("Public reply sent with 1 attachment.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Send reply" })).toBeDisabled();
+
+  const tooMany = Array.from({ length: 6 }, (_, index) => new File(["x"], `file-${index}.txt`, { type: "text/plain" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Public reply" }), { target: { value: "Do not send this." } });
+  fireEvent.change(screen.getByLabelText("Attach files to public reply"), { target: { files: tooMany } });
+  expect(screen.getByRole("alert")).toHaveTextContent("Choose at most 5 files.");
+  expect(screen.getByRole("button", { name: "Send reply" })).toBeDisabled();
+  expect(fetch.mock.calls.filter(([path]) => String(path).endsWith("/tickets/HLP-42/replies"))).toHaveLength(1);
+});
+
+it("uploads internal-note files only through the private note composer", async () => {
+  const fetch = stubSupportApi(async (path, init) => {
+    if (path.endsWith("/tickets/HLP-42/notes") && init?.method === "POST") {
+      return response({ ...detail, summary: { ...summary, version: 5 } });
+    }
+    return null;
+  });
+  render(<SupportWorkspace user={user} projects={[project]} />);
+  fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
+  await screen.findByRole("heading", { name: "Settings page is blank" });
+  fireEvent.click(screen.getByRole("tab", { name: "Internal note" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Internal note" }), { target: { value: "Private investigation." } });
+  const trace = new File(["trace"], "trace.txt", { type: "text/plain" });
+  fireEvent.change(screen.getByLabelText("Attach files to internal note"), { target: { files: [trace] } });
+  expect(screen.getByText(/Only support users and their agents can see these files/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+
+  await waitFor(() => expect(fetch.mock.calls.some(([path]) => String(path).endsWith("/tickets/HLP-42/notes"))).toBe(true));
+  const noteCall = fetch.mock.calls.find(([path]) => String(path).endsWith("/tickets/HLP-42/notes"));
+  const body = noteCall?.[1]?.body as FormData;
+  expect(body.get("message")).toBe("Private investigation.");
+  expect(body.has("status")).toBe(false);
+  expect(body.getAll("files")).toEqual([trace]);
 });
 
 it("snoozes and clears a ticket with version and idempotency protection", async () => {
@@ -148,7 +223,7 @@ it("snoozes and clears a ticket with version and idempotency protection", async 
   });
   render(<SupportWorkspace user={user} projects={[project]} />);
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
-  fireEvent.change(await screen.findByLabelText("Return to queue"), { target: { value: "2026-09-18T12:00" } });
+  fireEvent.change(await screen.findByLabelText("Return to queue"), { target: { value: "2026-09-20T12:00" } });
   fireEvent.click(screen.getByRole("button", { name: "Snooze ticket" }));
 
   await waitFor(() => expect(fetch).toHaveBeenCalledWith(
@@ -216,13 +291,17 @@ it("keeps a reply draft visible when the ticket version is stale", async () => {
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
   const reply = await screen.findByRole("textbox", { name: "Public reply" });
   fireEvent.change(reply, { target: { value: "Keep this carefully written draft." } });
+  const evidence = new File(["keep me"], "keep-me.txt", { type: "text/plain" });
+  fireEvent.change(screen.getByLabelText("Attach files to public reply"), { target: { files: [evidence] } });
   fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
 
   expect(await screen.findByText("This ticket changed while you were working.")).toBeInTheDocument();
   expect(reply).toHaveValue("Keep this carefully written draft.");
+  expect(screen.getByRole("list", { name: "Selected public attachments" })).toHaveTextContent("keep-me.txt");
   fireEvent.click(screen.getByRole("button", { name: "Reload ticket" }));
   await waitFor(() => expect(detailReads).toBe(2));
   expect(reply).toHaveValue("Keep this carefully written draft.");
+  expect(screen.getByRole("list", { name: "Selected public attachments" })).toHaveTextContent("keep-me.txt");
 });
 
 it("searches, creates, and opens project solution articles", async () => {
