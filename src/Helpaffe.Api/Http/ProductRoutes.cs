@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Helpaffe.Api.Hosting;
+using Helpaffe.Application.Attachments;
 using Helpaffe.Domain.Tickets;
 using Helpaffe.Infrastructure.Identity;
 using Helpaffe.Infrastructure.Notifications;
@@ -26,15 +27,29 @@ public static class ProductRoutes
         group.MapGet("/tickets", ListTickets);
         group.MapGet("/tickets/{number}", GetTicket);
         group.MapPost("/tickets/{number}/replies", AddReply);
+        group.MapGet("/tickets/{number}/attachments/{attachmentId:guid}", DownloadAttachment);
         return endpoints;
     }
 
     private static async Task<IResult> CreateTicket(
-        CreateTicketRequest request,
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory,
-        TicketWorkNotifier workNotifier)
+        TicketWorkNotifier workNotifier,
+        IAttachmentStorage attachmentStorage)
     {
+        var parsed = await AttachmentRequests.ReadAsync<CreateTicketRequest>(
+            context,
+            JsonOptions(context),
+            form => new(
+                form["external_user_id"].ToString(),
+                form["name"].ToString(),
+                form["email"].ToString(),
+                form["subject"].ToString(),
+                form["message"].ToString(),
+                FormContext(form["context"].ToString())),
+            "external_user_id", "name", "email", "subject", "message", "context");
+        if (parsed.Error is not null) return Problem(parsed.Error.Status, parsed.Error.Code, parsed.Error.Detail);
+        var request = parsed.Model!;
         var validation = ValidateRequester(request.ExternalUserId, request.Name, request.Email);
         if (validation is not null) return validation;
         if (!Required(request.Subject, 300)) return Problem(400, "validation", "Subject is required and may contain at most 300 characters.");
@@ -44,12 +59,13 @@ public static class ProductRoutes
         if (!IdempotencyKey(context, out var key, out var keyError)) return keyError!;
 
         var actor = context.ProductActor()!;
-        var requestHash = RequestHash(context, JsonSerializer.Serialize(request, JsonOptions(context)));
+        var requestHash = RequestHash(context, parsed.CanonicalBody);
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
         var replay = await ExistingIdempotency(database, actor, key!, requestHash, context);
         if (replay is not null) return replay;
 
         var now = DateTimeOffset.UtcNow;
+        var initialEntryId = Guid.NewGuid();
         var ticket = Ticket.Create(
             Guid.NewGuid(),
             NewTicketNumber(),
@@ -60,16 +76,30 @@ public static class ProductRoutes
             request.Email,
             request.Message,
             now,
+            initialEntryId,
             contextJson: contextJson);
         database.Tickets.Add(ticket);
-        NotificationOutbox.AddNewTicket(database, ticket, actor.Project, now);
-        var body = JsonSerializer.Serialize(ProductTicketDetail(ticket), JsonOptions(context));
-        AddIdempotency(database, actor, key!, requestHash, 201, body, ticket.Version);
-        var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: true);
-        if (saveError is not null) return saveError;
-        workNotifier.Signal();
-        context.Response.Headers.Location = $"/api/product/tickets/{ticket.Number}?external_user_id={Uri.EscapeDataString(ticket.RequesterExternalId)}";
-        return StoredJson(context, 201, body, ETag(ticket.Version));
+        var storedKeys = await AttachmentRequests.StoreAsync(
+            ticket, initialEntryId, parsed.Files, attachmentStorage, database, now, context.RequestAborted);
+        var persisted = false;
+        try
+        {
+            NotificationOutbox.AddNewTicket(database, ticket, actor.Project, now,
+                MessageWithAttachments(request.Message, ticket.Attachments.Where(value => value.ConversationEntryId == initialEntryId)));
+            var body = JsonSerializer.Serialize(ProductTicketDetail(ticket), JsonOptions(context));
+            AddIdempotency(database, actor, key!, requestHash, 201, body, ticket.Version);
+            var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: true);
+            if (saveError is not null) return saveError;
+            persisted = true;
+            workNotifier.Signal();
+            context.Response.Headers.Location = $"/api/product/tickets/{ticket.Number}?external_user_id={Uri.EscapeDataString(ticket.RequesterExternalId)}";
+            return StoredJson(context, 201, body, ETag(ticket.Version));
+        }
+        finally
+        {
+            if (!persisted)
+                await AttachmentRequests.DeleteAsync(attachmentStorage, storedKeys, CancellationToken.None);
+        }
     }
 
     private static async Task<IResult> ListTickets(
@@ -121,17 +151,24 @@ public static class ProductRoutes
 
     private static async Task<IResult> AddReply(
         string number,
-        CustomerReplyRequest request,
         HttpContext context,
         IDbContextFactory<HelpaffeDbContext> factory,
-        TicketWorkNotifier workNotifier)
+        TicketWorkNotifier workNotifier,
+        IAttachmentStorage attachmentStorage)
     {
+        var parsed = await AttachmentRequests.ReadAsync<CustomerReplyRequest>(
+            context,
+            JsonOptions(context),
+            form => new(form["external_user_id"].ToString(), form["message"].ToString()),
+            "external_user_id", "message");
+        if (parsed.Error is not null) return Problem(parsed.Error.Status, parsed.Error.Code, parsed.Error.Detail);
+        var request = parsed.Model!;
         if (!Required(request.ExternalUserId, 200))
             return Problem(400, "validation", "External user id is required and may contain at most 200 characters.");
         if (string.IsNullOrWhiteSpace(request.Message)) return Problem(400, "validation", "A message is required.");
         if (!IdempotencyKey(context, out var key, out var keyError)) return keyError!;
         var actor = context.ProductActor()!;
-        var requestHash = RequestHash(context, JsonSerializer.Serialize(request, JsonOptions(context)));
+        var requestHash = RequestHash(context, parsed.CanonicalBody);
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
         var ticket = await LoadTicket(number, request.ExternalUserId, actor, database, context.RequestAborted);
         if (ticket is null) return NotFound();
@@ -144,15 +181,54 @@ public static class ProductRoutes
         var assignee = ticket.AssigneeUserId is { } assigneeId
             ? await database.Users.AsNoTracking().SingleOrDefaultAsync(value => value.Id == assigneeId, context.RequestAborted)
             : null;
-        ticket.AddCustomerMessage(Guid.NewGuid(), request.Message, now);
+        var entryId = Guid.NewGuid();
+        ticket.AddCustomerMessage(entryId, request.Message, now);
         database.ConversationEntries.AddRange(ticket.Conversation.OrderBy(value => value.Sequence).Skip(existingEntryCount));
-        NotificationOutbox.AddCustomerReply(database, ticket, actor.Project, request.Message, assignee, now);
-        var body = JsonSerializer.Serialize(ProductTicketDetail(ticket), JsonOptions(context));
-        AddIdempotency(database, actor, key!, requestHash, 200, body, ticket.Version);
-        var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: false);
-        if (saveError is not null) return saveError;
-        workNotifier.Signal();
-        return StoredJson(context, 200, body, ETag(ticket.Version));
+        var storedKeys = await AttachmentRequests.StoreAsync(
+            ticket, entryId, parsed.Files, attachmentStorage, database, now, context.RequestAborted);
+        var persisted = false;
+        try
+        {
+            NotificationOutbox.AddCustomerReply(database, ticket, actor.Project,
+                MessageWithAttachments(request.Message, ticket.Attachments.Where(value => value.ConversationEntryId == entryId)), assignee, now);
+            var body = JsonSerializer.Serialize(ProductTicketDetail(ticket), JsonOptions(context));
+            AddIdempotency(database, actor, key!, requestHash, 200, body, ticket.Version);
+            var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context, creating: false);
+            if (saveError is not null) return saveError;
+            persisted = true;
+            workNotifier.Signal();
+            return StoredJson(context, 200, body, ETag(ticket.Version));
+        }
+        finally
+        {
+            if (!persisted)
+                await AttachmentRequests.DeleteAsync(attachmentStorage, storedKeys, CancellationToken.None);
+        }
+    }
+
+    private static async Task<IResult> DownloadAttachment(
+        string number,
+        Guid attachmentId,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory,
+        IAttachmentStorage attachmentStorage,
+        string? external_user_id = null)
+    {
+        if (!Required(external_user_id, 200))
+            return Problem(400, "validation", "External user id is required and may contain at most 200 characters.");
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var ticket = await LoadTicket(number, external_user_id!, context.ProductActor()!, database, context.RequestAborted);
+        var attachment = ticket?.Attachments.SingleOrDefault(value => value.Id == attachmentId && value.IsPublic);
+        if (attachment is null) return NotFound();
+        try
+        {
+            var content = await attachmentStorage.OpenReadAsync(attachment.StorageKey, context.RequestAborted);
+            return Results.File(content, attachment.MediaType, attachment.FileName, enableRangeProcessing: true);
+        }
+        catch (FileNotFoundException)
+        {
+            return Problem(404, "not-found", "The attachment content is unavailable.");
+        }
     }
 
     private static Task<Ticket?> LoadTicket(
@@ -166,6 +242,7 @@ public static class ProductRoutes
                 value.RequesterExternalId == externalUserId.Trim() &&
                 value.Number == number.Trim().ToUpperInvariant())
             .Include(value => value.Conversation)
+            .Include(value => value.Attachments)
             .AsSplitQuery()
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -186,8 +263,32 @@ public static class ProductRoutes
             kind = value.Kind is ConversationEntryKind.CustomerMessage ? "customer_message" : "public_reply",
             value.Body,
             created_at = value.CreatedAt,
+            attachments = ticket.Attachments.Where(attachment =>
+                    attachment.ConversationEntryId == value.Id && attachment.IsPublic)
+                .OrderBy(attachment => attachment.CreatedAt).ThenBy(attachment => attachment.Id)
+                .Select(value => new
+                {
+                    value.Id,
+                    file_name = value.FileName,
+                    media_type = value.MediaType,
+                    size = value.Size,
+                    created_at = value.CreatedAt,
+                }),
         }),
     };
+
+    private static JsonElement? FormContext(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        using var document = JsonDocument.Parse(value);
+        return document.RootElement.Clone();
+    }
+
+    private static string MessageWithAttachments(string message, IEnumerable<TicketAttachment> attachments)
+    {
+        var names = attachments.Select(value => value.FileName).ToArray();
+        return names.Length == 0 ? message : $"{message}\n\nAttachments: {string.Join(", ", names)}";
+    }
 
     private static object ProductTicketSummary(Ticket ticket) => new
     {

@@ -63,12 +63,16 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml up --build -d
 curl --fail http://localhost:5066/health/ready
 ```
 
-PostgreSQL data lives in the named `helpaffe-db` volume. An ordinary
-`docker compose ... down` and subsequent `up -d` reuses it. `down --volumes`
+PostgreSQL data lives in the named `helpaffe-db` volume and attachment bytes in
+the named `helpaffe-attachments` volume. Attachment metadata remains in
+PostgreSQL. An ordinary `docker compose ... down` and subsequent `up -d` reuses
+both volumes. `down --volumes`
 deletes the database and is reserved for intentionally starting over.
 
-The stack contains the helpaffe application and PostgreSQL only. The MVP has no
-object store, upload service, or language service.
+The stack contains the helpaffe application and PostgreSQL only. File bytes are
+written by the application to `Attachments:RootPath`; the production Compose
+file mounts that path from the attachment volume. There is no separate object
+store, upload service, or language service.
 
 ## SMTP secret encryption
 
@@ -153,7 +157,8 @@ covers the same empty-database migration path in CI.
 
 ## Database backup and restore
 
-Back up PostgreSQL independently of the Docker volume. Keep the matching
+Back up PostgreSQL and the attachment storage together so metadata never points
+at a different generation of file content. Keep the matching
 `HELPAFFE_SECRETS_ENCRYPTION_KEY` in the deployment secret store: a database
 dump without that key cannot decrypt stored SMTP passwords. Create and inspect
 a custom-format dump with:

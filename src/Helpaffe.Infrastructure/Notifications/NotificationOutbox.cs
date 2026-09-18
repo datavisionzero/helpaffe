@@ -23,9 +23,15 @@ public static class NotificationOutbox
     public const string Customer = "customer";
     public const string Assignee = "assignee";
 
-    public static void AddNewTicket(HelpaffeDbContext database, Ticket ticket, ProjectRecord project, DateTimeOffset now)
+    public static void AddNewTicket(
+        HelpaffeDbContext database,
+        Ticket ticket,
+        ProjectRecord project,
+        DateTimeOffset now,
+        string? message = null)
     {
-        var data = Data(ticket, project, ticket.Conversation.OrderBy(value => value.Sequence).First().Body, string.Empty);
+        var data = Data(ticket, project,
+            message ?? ticket.Conversation.OrderBy(value => value.Sequence).First().Body, string.Empty);
         Add(database, ticket, "new_ticket_customer", Customer, ticket.RequesterEmail, ticket.RequesterName, data, now);
         Add(database, ticket, "new_ticket_support", SupportRecipients, null, null, data, now);
     }

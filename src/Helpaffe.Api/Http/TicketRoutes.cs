@@ -4,6 +4,7 @@ using System.Text.Json;
 using Helpaffe.Domain.Identity;
 using Helpaffe.Domain.Tickets;
 using Helpaffe.Api.Hosting;
+using Helpaffe.Application.Attachments;
 using Helpaffe.Infrastructure.Identity;
 using Helpaffe.Infrastructure.Notifications;
 using Helpaffe.Infrastructure.Persistence;
@@ -30,6 +31,7 @@ public static class TicketRoutes
         group.MapDelete("/tickets/{number}/development-references/{referenceId:guid}", RemoveDevelopmentReference);
         group.MapPost("/tickets/{number}/replies", AddReply);
         group.MapPost("/tickets/{number}/notes", AddNote);
+        group.MapGet("/tickets/{number}/attachments/{attachmentId:guid}", DownloadAttachment);
         group.MapGet("/projects/{projectId:guid}/support-instructions", GetSupportInstructions);
         group.MapPut("/projects/{projectId:guid}/support-instructions", UpdateSupportInstructions);
         return endpoints;
@@ -359,10 +361,17 @@ public static class TicketRoutes
 
     private static async Task<IResult> AddReply(
         string number,
-        AddReplyRequest request,
         HttpContext context,
-        IDbContextFactory<HelpaffeDbContext> factory)
+        IDbContextFactory<HelpaffeDbContext> factory,
+        IAttachmentStorage attachmentStorage)
     {
+        var parsed = await AttachmentRequests.ReadAsync<AddReplyRequest>(
+            context,
+            JsonOptions(context),
+            form => new(form["message"].ToString(), form["status"].ToString()),
+            "message", "status");
+        if (parsed.Error is not null) return Problem(parsed.Error.Status, parsed.Error.Code, parsed.Error.Detail);
+        var request = parsed.Model!;
         if (string.IsNullOrWhiteSpace(request.Message)) return Problem(400, "validation", "A reply is required.");
         if (!TryStatus(request.Status, out var status) || status is null or TicketStatus.Open)
             return Problem(400, "validation", "A reply status must be in_progress, waiting_for_customer, or resolved.");
@@ -371,49 +380,106 @@ public static class TicketRoutes
         var ticket = await LoadVisibleTicket(number, context, database);
         if (ticket is null) return NotFound();
         if (!IdempotencyKey(context, out var key, out var keyError)) return keyError!;
-        var requestHash = RequestHash(context, JsonSerializer.Serialize(request, JsonOptions(context)));
+        var requestHash = RequestHash(context, parsed.CanonicalBody);
         var replay = await ExistingIdempotency(database, actor, key!, requestHash, context);
         if (replay is not null) return replay;
         if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
         var existingEntryCount = ticket.Conversation.Count;
         var now = DateTimeOffset.UtcNow;
-        ticket.AddPublicReply(Guid.NewGuid(), actor.User.Id, actor.Agent?.Id, request.Message, status.Value, now);
+        var entryId = Guid.NewGuid();
+        ticket.AddPublicReply(entryId, actor.User.Id, actor.Agent?.Id, request.Message, status.Value, now);
         TrackNewEntries(database, ticket, existingEntryCount);
-        var replyProject = await database.Projects.AsNoTracking().SingleAsync(value => value.Id == ticket.ProjectId, context.RequestAborted);
-        NotificationOutbox.AddSupportReply(database, ticket, replyProject, request.Message, now);
-        var detail = await TicketDetail(ticket, database, context.RequestAborted);
-        var body = JsonSerializer.Serialize(detail, JsonOptions(context));
-        AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
-        var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
-        if (saveError is not null) return saveError;
-        return StoredJson(context, 200, body, ETag(ticket.Version));
+        var storedKeys = await AttachmentRequests.StoreAsync(
+            ticket, entryId, parsed.Files, attachmentStorage, database, now, context.RequestAborted);
+        var persisted = false;
+        try
+        {
+            var replyProject = await database.Projects.AsNoTracking().SingleAsync(value => value.Id == ticket.ProjectId, context.RequestAborted);
+            NotificationOutbox.AddSupportReply(database, ticket, replyProject,
+                MessageWithAttachments(request.Message, ticket.Attachments.Where(value => value.ConversationEntryId == entryId)), now);
+            var detail = await TicketDetail(ticket, database, context.RequestAborted);
+            var body = JsonSerializer.Serialize(detail, JsonOptions(context));
+            AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
+            var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
+            if (saveError is not null) return saveError;
+            persisted = true;
+            return StoredJson(context, 200, body, ETag(ticket.Version));
+        }
+        finally
+        {
+            if (!persisted)
+                await AttachmentRequests.DeleteAsync(attachmentStorage, storedKeys, CancellationToken.None);
+        }
     }
 
     private static async Task<IResult> AddNote(
         string number,
-        AddNoteRequest request,
         HttpContext context,
-        IDbContextFactory<HelpaffeDbContext> factory)
+        IDbContextFactory<HelpaffeDbContext> factory,
+        IAttachmentStorage attachmentStorage)
     {
+        var parsed = await AttachmentRequests.ReadAsync<AddNoteRequest>(
+            context,
+            JsonOptions(context),
+            form => new(form["message"].ToString()),
+            "message");
+        if (parsed.Error is not null) return Problem(parsed.Error.Status, parsed.Error.Code, parsed.Error.Detail);
+        var request = parsed.Model!;
         if (string.IsNullOrWhiteSpace(request.Message)) return Problem(400, "validation", "A note is required.");
         var actor = context.Actor()!;
         await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
         var ticket = await LoadVisibleTicket(number, context, database);
         if (ticket is null) return NotFound();
         if (!IdempotencyKey(context, out var key, out var keyError)) return keyError!;
-        var requestHash = RequestHash(context, JsonSerializer.Serialize(request, JsonOptions(context)));
+        var requestHash = RequestHash(context, parsed.CanonicalBody);
         var replay = await ExistingIdempotency(database, actor, key!, requestHash, context);
         if (replay is not null) return replay;
         if (!ExpectedVersion(context, ticket.Version, out var versionError)) return versionError!;
         var existingEntryCount = ticket.Conversation.Count;
-        ticket.AddInternalNote(Guid.NewGuid(), actor.User.Id, actor.Agent?.Id, request.Message, DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        var entryId = Guid.NewGuid();
+        ticket.AddInternalNote(entryId, actor.User.Id, actor.Agent?.Id, request.Message, now);
         TrackNewEntries(database, ticket, existingEntryCount);
-        var detail = await TicketDetail(ticket, database, context.RequestAborted);
-        var body = JsonSerializer.Serialize(detail, JsonOptions(context));
-        AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
-        var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
-        if (saveError is not null) return saveError;
-        return StoredJson(context, 200, body, ETag(ticket.Version));
+        var storedKeys = await AttachmentRequests.StoreAsync(
+            ticket, entryId, parsed.Files, attachmentStorage, database, now, context.RequestAborted);
+        var persisted = false;
+        try
+        {
+            var detail = await TicketDetail(ticket, database, context.RequestAborted);
+            var body = JsonSerializer.Serialize(detail, JsonOptions(context));
+            AddIdempotency(database, actor, key!, requestHash, body, ticket.Version);
+            var saveError = await SaveIdempotent(database, ticket.Id, actor, key!, requestHash, context);
+            if (saveError is not null) return saveError;
+            persisted = true;
+            return StoredJson(context, 200, body, ETag(ticket.Version));
+        }
+        finally
+        {
+            if (!persisted)
+                await AttachmentRequests.DeleteAsync(attachmentStorage, storedKeys, CancellationToken.None);
+        }
+    }
+
+    private static async Task<IResult> DownloadAttachment(
+        string number,
+        Guid attachmentId,
+        HttpContext context,
+        IDbContextFactory<HelpaffeDbContext> factory,
+        IAttachmentStorage attachmentStorage)
+    {
+        await using var database = await factory.CreateDbContextAsync(context.RequestAborted);
+        var ticket = await LoadVisibleTicket(number, context, database);
+        var attachment = ticket?.Attachments.SingleOrDefault(value => value.Id == attachmentId);
+        if (attachment is null) return Problem(404, "not-found", "The attachment was not found in the caller's project scope.");
+        try
+        {
+            var content = await attachmentStorage.OpenReadAsync(attachment.StorageKey, context.RequestAborted);
+            return Results.File(content, attachment.MediaType, attachment.FileName, enableRangeProcessing: true);
+        }
+        catch (FileNotFoundException)
+        {
+            return Problem(404, "not-found", "The attachment content is unavailable.");
+        }
     }
 
     private static async Task<IResult> UpdateTicket(
@@ -594,6 +660,7 @@ public static class TicketRoutes
         return await database.Tickets.Where(value => visibleProjectIds.Contains(value.ProjectId))
             .Include(value => value.Conversation)
             .Include(value => value.DevelopmentReferences)
+            .Include(value => value.Attachments)
             .AsSplitQuery()
             .SingleOrDefaultAsync(value => value.Number == number.Trim().ToUpperInvariant(), context.RequestAborted);
     }
@@ -826,8 +893,27 @@ public static class TicketRoutes
                     agent_id = value.ActingAgentCredentialId,
                     agent_name = value.ActingAgentCredentialId is { } agentId ? agents.GetValueOrDefault(agentId)?.Name : null,
                 } : null,
+                attachments = ticket.Attachments.Where(attachment => attachment.ConversationEntryId == value.Id)
+                    .OrderBy(attachment => attachment.CreatedAt).ThenBy(attachment => attachment.Id)
+                    .Select(AttachmentShape),
             }),
         };
+    }
+
+    private static object AttachmentShape(TicketAttachment value) => new
+    {
+        value.Id,
+        file_name = value.FileName,
+        media_type = value.MediaType,
+        size = value.Size,
+        is_public = value.IsPublic,
+        created_at = value.CreatedAt,
+    };
+
+    private static string MessageWithAttachments(string message, IEnumerable<TicketAttachment> attachments)
+    {
+        var names = attachments.Select(value => value.FileName).ToArray();
+        return names.Length == 0 ? message : $"{message}\n\nAttachments: {string.Join(", ", names)}";
     }
 
     internal static object NotificationShape(NotificationDeliveryRecord value) => new

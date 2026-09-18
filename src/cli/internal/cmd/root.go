@@ -97,6 +97,7 @@ func ExitCode(err error) int {
 func PrintError(root *cobra.Command, output io.Writer, err error) {
 	var api *apiError
 	var waitTimeout *waitTimeoutError
+	var localProblem *localProblemError
 	jsonOutput, _ := root.Flags().GetBool("json")
 	if errors.As(err, &api) && jsonOutput && len(api.body) > 0 {
 		fmt.Fprintf(output, "%s\n", api.body)
@@ -104,6 +105,20 @@ func PrintError(root *cobra.Command, output io.Writer, err error) {
 	}
 	if errors.As(err, &waitTimeout) && jsonOutput && len(waitTimeout.body) > 0 {
 		fmt.Fprintf(output, "%s\n", waitTimeout.body)
+		return
+	}
+	if errors.As(err, &localProblem) && jsonOutput {
+		_ = json.NewEncoder(output).Encode(struct {
+			Type     string `json:"type"`
+			Title    string `json:"title"`
+			Detail   string `json:"detail"`
+			ExitCode int    `json:"exit_code"`
+		}{
+			Type:     "/problems/cli/" + localProblem.code,
+			Title:    "CLI attachment error",
+			Detail:   localProblem.message,
+			ExitCode: localProblem.exitCode,
+		})
 		return
 	}
 	if jsonOutput {

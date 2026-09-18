@@ -79,3 +79,7 @@ _Avoid_: Public reply, customer message
 **System Event**:
 A support-only conversation entry that records a meaningful ticket change rather than authored message content.
 _Avoid_: Audit log, public reply
+
+**Attachment**:
+An immutable file belonging to exactly one conversation entry. It inherits that entry's public or internal visibility and is addressed by opaque metadata rather than its storage path.
+_Avoid_: Upload token, shared file, storage object

@@ -62,6 +62,255 @@ func TestTicketNoteUsesAgentAuthConcurrencyAndStdin(t *testing.T) {
 	}
 }
 
+func TestTicketReplyStreamsRepeatedAttachmentsAsMultipart(t *testing.T) {
+	attachmentPath := filepath.Join(t.TempDir(), "evidence.txt")
+	if err := os.WriteFile(attachmentPath, []byte("first attachment"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	secondPath := filepath.Join(t.TempDir(), "details.json")
+	if err := os.WriteFile(secondPath, []byte(`{"reproduced":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/replies"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		if got, want := request.Header.Get("If-Match"), `"7"`; got != want {
+			t.Errorf("If-Match = %q, want %q", got, want)
+		}
+		if request.Header.Get("Idempotency-Key") == "" {
+			t.Error("Idempotency-Key is missing")
+		}
+		if err := request.ParseMultipartForm(maximumAttachmentTotal + 1024); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := request.FormValue("message"), "Public answer"; got != want {
+			t.Errorf("message = %q, want %q", got, want)
+		}
+		if got, want := request.FormValue("status"), "waiting_for_customer"; got != want {
+			t.Errorf("status = %q, want %q", got, want)
+		}
+		files := request.MultipartForm.File["files"]
+		if got, want := len(files), 2; got != want {
+			t.Fatalf("files = %d, want %d", got, want)
+		}
+		if got, want := files[0].Filename, "evidence.txt"; got != want {
+			t.Errorf("first file = %q, want %q", got, want)
+		}
+		opened, err := files[1].Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer opened.Close()
+		content, err := io.ReadAll(opened)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := string(content), `{"reproduced":true}`; got != want {
+			t.Errorf("second content = %q, want %q", got, want)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{"summary":{"version":8},"conversation":[{"attachments":[{"file_name":"evidence.txt","is_public":true}]}]}`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	var output bytes.Buffer
+	err := ExecuteForTest(New("1.2.3"), &output, "--json", "ticket", "reply", "HLP-42",
+		"--version", "7", "--status", "waiting_for_customer", "--message", "Public answer",
+		"--file", attachmentPath, "--file", secondPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["conversation"] == nil {
+		t.Fatal("machine-readable output omitted conversation attachment metadata")
+	}
+}
+
+func TestTicketNoteUploadsAttachmentsOnlyToThePrivateNoteRoute(t *testing.T) {
+	attachmentPath := filepath.Join(t.TempDir(), "private.txt")
+	if err := os.WriteFile(attachmentPath, []byte("internal evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/notes"; got != want {
+			t.Errorf("path = %q, want private note route %q", got, want)
+		}
+		if err := request.ParseMultipartForm(maximumAttachmentTotal + 1024); err != nil {
+			t.Fatal(err)
+		}
+		if got := request.FormValue("status"); got != "" {
+			t.Errorf("private note unexpectedly sent public reply status %q", got)
+		}
+		if got, want := len(request.MultipartForm.File["files"]), 1; got != want {
+			t.Errorf("files = %d, want %d", got, want)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, `{"summary":{"version":8}}`)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+
+	if err := ExecuteForTest(New("1.2.3"), io.Discard, "ticket", "note", "HLP-42",
+		"--version", "7", "--note", "Private investigation", "--file", attachmentPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTicketAttachmentDownloadWritesANewFileAndCompleteJSON(t *testing.T) {
+	const attachmentID = "018f6b45-9e25-7def-a000-112233445566"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/attachments/"+attachmentID; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+		writer.Header().Set("Content-Type", "text/plain")
+		writer.Header().Set("Content-Disposition", `attachment; filename="evidence.txt"`)
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		_, _ = io.WriteString(writer, "downloaded evidence")
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+	outputPath := filepath.Join(t.TempDir(), "download.txt")
+
+	var output bytes.Buffer
+	err := ExecuteForTest(New("1.2.3"), &output, "--json", "ticket", "attachment", "download",
+		"HLP-42", attachmentID, "--output", outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(content), "downloaded evidence"; got != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+	var result struct {
+		AttachmentID string `json:"attachment_id"`
+		FileName     string `json:"file_name"`
+		MediaType    string `json:"media_type"`
+		Size         int64  `json:"size"`
+		Path         string `json:"path"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.AttachmentID != attachmentID || result.FileName != "evidence.txt" || result.MediaType != "text/plain" || result.Size != int64(len(content)) || result.Path != outputPath {
+		t.Fatalf("download result = %#v", result)
+	}
+}
+
+func TestAttachmentValidationHasStableMachineReadableLocalErrors(t *testing.T) {
+	attachmentPath := filepath.Join(t.TempDir(), "unsafe.exe")
+	if err := os.WriteFile(attachmentPath, []byte("not allowed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := New("1.2.3")
+	var output bytes.Buffer
+	err := ExecuteForTest(root, &output, "--json", "ticket", "reply", "HLP-42", "--version", "7",
+		"--status", "resolved", "--message", "Done", "--file", attachmentPath)
+	if got, want := ExitCode(err), 4; got != want {
+		t.Fatalf("exit code = %d, want %d", got, want)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", output.String())
+	}
+	var printed bytes.Buffer
+	PrintError(root, &printed, err)
+	var problem struct {
+		Type     string `json:"type"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal(printed.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := problem.Type, "/problems/cli/attachment-type"; got != want {
+		t.Fatalf("type = %q, want %q", got, want)
+	}
+	if got, want := problem.ExitCode, 4; got != want {
+		t.Fatalf("exit code field = %d, want %d", got, want)
+	}
+}
+
+func TestAttachmentValidationSeparatesFileAndLimitProblems(t *testing.T) {
+	emptyPath := filepath.Join(t.TempDir(), "empty.txt")
+	if err := os.WriteFile(emptyPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		files    []string
+		wantType string
+		wantExit int
+	}{
+		{name: "missing file", files: []string{filepath.Join(t.TempDir(), "missing.txt")}, wantType: "/problems/cli/attachment-file", wantExit: 2},
+		{name: "too many files", files: []string{"1.txt", "2.txt", "3.txt", "4.txt", "5.txt", "6.txt"}, wantType: "/problems/cli/attachment-limit", wantExit: 4},
+		{name: "empty file", files: []string{emptyPath}, wantType: "/problems/cli/attachment-too-large", wantExit: 4},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := New("1.2.3")
+			arguments := []string{"--json", "ticket", "note", "HLP-42", "--version", "7", "--note", "Private"}
+			for _, file := range test.files {
+				arguments = append(arguments, "--file", file)
+			}
+			err := ExecuteForTest(root, io.Discard, arguments...)
+			if got := ExitCode(err); got != test.wantExit {
+				t.Fatalf("exit code = %d, want %d", got, test.wantExit)
+			}
+			var printed bytes.Buffer
+			PrintError(root, &printed, err)
+			var problem struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(printed.Bytes(), &problem); err != nil {
+				t.Fatal(err)
+			}
+			if problem.Type != test.wantType {
+				t.Fatalf("type = %q, want %q", problem.Type, test.wantType)
+			}
+		})
+	}
+}
+
+func TestAttachmentAPITypeErrorsKeepTheValidationExitCodeAndProblem(t *testing.T) {
+	attachmentPath := filepath.Join(t.TempDir(), "evidence.txt")
+	if err := os.WriteFile(attachmentPath, []byte("valid local text"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const problemBody = `{"type":"/problems/attachment-type","title":"Unsupported attachment type","status":415,"detail":"The server rejected the declared file type."}`
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/problem+json")
+		writer.Header().Set("Helpaffe-Version", "1.2.3")
+		writer.WriteHeader(http.StatusUnsupportedMediaType)
+		_, _ = io.WriteString(writer, problemBody)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("HELPAFFE_URL", server.URL)
+	t.Setenv("HELPAFFE_TOKEN", "hfa_test-token")
+	root := New("1.2.3")
+	var output bytes.Buffer
+	err := ExecuteForTest(root, &output, "--json", "ticket", "reply", "HLP-42", "--version", "7",
+		"--status", "resolved", "--message", "Done", "--file", attachmentPath)
+	if got, want := ExitCode(err), 4; got != want {
+		t.Fatalf("exit code = %d, want %d", got, want)
+	}
+	var printed bytes.Buffer
+	PrintError(root, &printed, err)
+	if got, want := strings.TrimSpace(printed.String()), problemBody; got != want {
+		t.Fatalf("problem = %q, want %q", got, want)
+	}
+}
+
 func TestTicketNotificationRetryUsesIdempotencyWithoutTicketVersion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if got, want := request.URL.Path, "/api/backoffice/tickets/HLP-42/notifications/018f6b45-9e25-7def-a000-112233445566/retry"; got != want {

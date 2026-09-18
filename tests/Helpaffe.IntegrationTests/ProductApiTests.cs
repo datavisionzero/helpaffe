@@ -21,10 +21,15 @@ public sealed class ProductApiTests : IAsyncLifetime
         .WithUsername("helpaffe")
         .WithPassword("helpaffe-tests")
         .Build();
+    private readonly string _attachmentRoot = Path.Combine(Path.GetTempPath(), $"helpaffe-attachments-{Guid.NewGuid():N}");
 
     public ValueTask InitializeAsync() => new(_postgres.StartAsync());
 
-    public ValueTask DisposeAsync() => new(_postgres.DisposeAsync().AsTask());
+    public async ValueTask DisposeAsync()
+    {
+        await _postgres.DisposeAsync();
+        if (Directory.Exists(_attachmentRoot)) Directory.Delete(_attachmentRoot, recursive: true);
+    }
 
     [Fact]
     public async Task Product_tickets_are_isolated_by_project_and_external_user_and_expose_only_public_history()
@@ -234,6 +239,90 @@ public sealed class ProductApiTests : IAsyncLifetime
             (await product.GetAsync("/api/product/tickets", TestContext.Current.CancellationToken)).StatusCode);
     }
 
+    [Fact]
+    public async Task Attachments_are_validated_persisted_and_downloaded_only_in_their_visibility_scope()
+    {
+        await using var factory = CreateFactory();
+        using var admin = await SignIn(factory);
+        var project = await CreateProject(admin, "FILES", "Files product");
+        var otherProject = await CreateProject(admin, "OTHERFILES", "Other files product");
+        using var product = BearerClient(factory, await CreateProductKey(admin, project));
+        using var otherProduct = BearerClient(factory, await CreateProductKey(admin, otherProject));
+
+        using var createForm = new MultipartFormDataContent();
+        createForm.Add(new StringContent("customer-attachment"), "external_user_id");
+        createForm.Add(new StringContent("Ada User"), "name");
+        createForm.Add(new StringContent("ada@example.test"), "email");
+        createForm.Add(new StringContent("Screenshot attached"), "subject");
+        createForm.Add(new StringContent("The page is broken."), "message");
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4 };
+        var png = new ByteArrayContent(pngBytes);
+        png.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        createForm.Add(png, "files", "screen.png");
+        using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/api/product/tickets") { Content = createForm };
+        createRequest.Headers.Add("Idempotency-Key", "create-with-file");
+
+        var created = await product.SendAsync(createRequest, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var document = await Read(created);
+        var number = document.GetProperty("summary").GetProperty("number").GetString()!;
+        var initial = Assert.Single(document.GetProperty("conversation").EnumerateArray());
+        var publicAttachment = Assert.Single(initial.GetProperty("attachments").EnumerateArray());
+        var publicAttachmentId = publicAttachment.GetProperty("id").GetGuid();
+        Assert.Equal("image/png", publicAttachment.GetProperty("media_type").GetString());
+
+        var productDownload = await product.GetAsync(
+            $"/api/product/tickets/{number}/attachments/{publicAttachmentId}?external_user_id=customer-attachment",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, productDownload.StatusCode);
+        Assert.Equal(pngBytes, await productDownload.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(HttpStatusCode.NotFound, (await otherProduct.GetAsync(
+            $"/api/product/tickets/{number}/attachments/{publicAttachmentId}?external_user_id=customer-attachment",
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        var version = document.GetProperty("summary").GetProperty("version").GetInt32();
+        using var noteForm = new MultipartFormDataContent();
+        noteForm.Add(new StringContent("Private diagnostic output."), "message");
+        var text = new ByteArrayContent("secret trace"u8.ToArray());
+        text.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+        noteForm.Add(text, "files", "trace.txt");
+        using var noteRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/backoffice/tickets/{number}/notes") { Content = noteForm };
+        noteRequest.Headers.TryAddWithoutValidation("If-Match", $"\"{version}\"");
+        noteRequest.Headers.Add("Idempotency-Key", "note-with-file");
+        var noted = await admin.SendAsync(noteRequest, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, noted.StatusCode);
+        var noteDocument = await Read(noted);
+        var note = Assert.Single(noteDocument.GetProperty("conversation").EnumerateArray(),
+            value => value.GetProperty("kind").GetString() == "internal_note");
+        var internalAttachmentId = Assert.Single(note.GetProperty("attachments").EnumerateArray()).GetProperty("id").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync(
+            $"/api/backoffice/tickets/{number}/attachments/{internalAttachmentId}",
+            TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await product.GetAsync(
+            $"/api/product/tickets/{number}/attachments/{internalAttachmentId}?external_user_id=customer-attachment",
+            TestContext.Current.CancellationToken)).StatusCode);
+
+        using var invalidForm = new MultipartFormDataContent();
+        invalidForm.Add(new StringContent("customer-attachment"), "external_user_id");
+        invalidForm.Add(new StringContent("Another message"), "message");
+        var disguised = new ByteArrayContent("not a png"u8.ToArray());
+        disguised.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        invalidForm.Add(disguised, "files", "fake.png");
+        using var invalidRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/product/tickets/{number}/replies") { Content = invalidForm };
+        invalidRequest.Headers.TryAddWithoutValidation("If-Match",
+            $"\"{noteDocument.GetProperty("summary").GetProperty("version").GetInt32()}\"");
+        invalidRequest.Headers.Add("Idempotency-Key", "invalid-file");
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType,
+            (await product.SendAsync(invalidRequest, TestContext.Current.CancellationToken)).StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        await using var database = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<HelpaffeDbContext>>()
+            .CreateDbContextAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, await database.TicketAttachments.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(2, Directory.EnumerateFiles(_attachmentRoot, "*", SearchOption.AllDirectories).Count());
+    }
+
     private WebApplicationFactory<Program> CreateFactory() => new WebApplicationFactory<Program>()
         .WithWebHostBuilder(builder =>
         {
@@ -241,6 +330,7 @@ public sealed class ProductApiTests : IAsyncLifetime
             builder.UseSetting("Bootstrap:Name", "Admin");
             builder.UseSetting("Bootstrap:Email", "admin@example.test");
             builder.UseSetting("Bootstrap:Password", AdminPassword);
+            builder.UseSetting("Attachments:RootPath", _attachmentRoot);
         });
 
     private static async Task<HttpClient> SignIn(WebApplicationFactory<Program> factory)

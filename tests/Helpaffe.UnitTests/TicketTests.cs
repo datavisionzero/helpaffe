@@ -207,6 +207,47 @@ public sealed class TicketTests
         Assert.Contains(ticket.Conversation, entry => entry.Body.Contains("Development reference removed: GitHub GH-42", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Attachments_are_immutable_and_inherit_their_message_visibility()
+    {
+        var userId = Guid.NewGuid();
+        var ticket = CreateTicket();
+        var publicEntry = Assert.Single(ticket.Conversation);
+        var noteId = Guid.NewGuid();
+        ticket.AddInternalNote(noteId, userId, null, "Internal evidence", CreatedAt.AddMinutes(1));
+
+        var publicAttachment = ticket.AddAttachment(
+            Guid.NewGuid(), publicEntry.Id, "screenshot.png", "image/png", 42, new string('a', 64), CreatedAt);
+        var internalAttachment = ticket.AddAttachment(
+            Guid.NewGuid(), noteId, "trace.txt", "text/plain", 84, new string('b', 64), CreatedAt.AddMinutes(1));
+
+        Assert.True(publicAttachment.IsPublic);
+        Assert.False(internalAttachment.IsPublic);
+        Assert.Equal(ticket.ProjectId, publicAttachment.ProjectId);
+        Assert.All(typeof(TicketAttachment).GetProperties().Where(value => value.SetMethod is not null),
+            value => Assert.False(value.SetMethod!.IsPublic));
+        Assert.Equal(2, ticket.Attachments.Count);
+    }
+
+    [Fact]
+    public void Attachment_limits_and_names_are_enforced_by_the_aggregate()
+    {
+        var ticket = CreateTicket();
+        var entryId = Assert.Single(ticket.Conversation).Id;
+
+        Assert.Throws<ArgumentException>(() => ticket.AddAttachment(
+            Guid.NewGuid(), entryId, "../secret.txt", "text/plain", 10, new string('a', 64), CreatedAt));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ticket.AddAttachment(
+            Guid.NewGuid(), entryId, "large.txt", "text/plain", TicketAttachment.MaximumFileSize + 1,
+            new string('a', 64), CreatedAt));
+
+        for (var index = 0; index < TicketAttachment.MaximumFilesPerMessage; index++)
+            ticket.AddAttachment(Guid.NewGuid(), entryId, $"file-{index}.txt", "text/plain", 1,
+                index.ToString("x64"), CreatedAt);
+        Assert.Throws<InvalidOperationException>(() => ticket.AddAttachment(
+            Guid.NewGuid(), entryId, "one-too-many.txt", "text/plain", 1, new string('f', 64), CreatedAt));
+    }
+
     private static Ticket CreateTicket(Guid? projectId = null) => Ticket.Create(
         Guid.NewGuid(),
         "HLP-42",

@@ -37,7 +37,10 @@
         "operationId": "createProductTicket",
         "summary": "Create an Open ticket for an identified end user",
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTicket" } } } },
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/CreateTicket" } },
+          "multipart/form-data": { "schema": { "$ref": "#/components/schemas/CreateTicketMultipart" } }
+        } },
         "responses": {
           "201": { "description": "Created or idempotently replayed ticket", "headers": { "ETag": { "$ref": "#/components/headers/ETag" }, "Location": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
@@ -71,7 +74,10 @@
           { "$ref": "#/components/parameters/IfMatch" },
           { "$ref": "#/components/parameters/IdempotencyKey" }
         ],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CustomerReply" } } } },
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/CustomerReply" } },
+          "multipart/form-data": { "schema": { "$ref": "#/components/schemas/CustomerReplyMultipart" } }
+        } },
         "responses": {
           "200": { "description": "Updated or idempotently replayed ticket", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
@@ -80,6 +86,23 @@
           "409": { "$ref": "#/components/responses/Conflict" },
           "412": { "$ref": "#/components/responses/Stale" },
           "428": { "$ref": "#/components/responses/VersionRequired" }
+        }
+      }
+    },
+    "/tickets/{number}/attachments/{attachmentId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TicketNumber" },
+        { "$ref": "#/components/parameters/ExternalUserId" },
+        { "name": "attachmentId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "operationId": "downloadProductTicketAttachment",
+        "summary": "Download one public attachment in the external user's ticket scope",
+        "responses": {
+          "200": { "description": "Attachment bytes", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     }
@@ -153,13 +176,14 @@
       },
       "PublicConversationEntry": {
         "type": "object",
-        "required": ["id", "sequence", "kind", "body", "created_at"],
+        "required": ["id", "sequence", "kind", "body", "created_at", "attachments"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "sequence": { "type": "integer", "minimum": 1 },
           "kind": { "type": "string", "enum": ["customer_message", "public_reply"] },
           "body": { "type": "string" },
-          "created_at": { "type": "string", "format": "date-time" }
+          "created_at": { "type": "string", "format": "date-time" },
+          "attachments": { "type": "array", "items": { "$ref": "#/components/schemas/PublicAttachment" } }
         },
         "additionalProperties": false
       },
@@ -187,12 +211,48 @@
         },
         "additionalProperties": false
       },
+      "CreateTicketMultipart": {
+        "type": "object",
+        "required": ["external_user_id", "name", "email", "subject", "message"],
+        "properties": {
+          "external_user_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "email": { "type": "string", "format": "email", "minLength": 1, "maxLength": 320 },
+          "subject": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "message": { "type": "string", "minLength": 1 },
+          "context": { "type": ["string", "null"], "description": "JSON object encoded as one form field, at most 16 KiB" },
+          "files": { "type": "array", "maxItems": 5, "items": { "type": "string", "format": "binary" } }
+        },
+        "additionalProperties": false
+      },
       "CustomerReply": {
         "type": "object",
         "required": ["external_user_id", "message"],
         "properties": {
           "external_user_id": { "type": "string", "minLength": 1, "maxLength": 200 },
           "message": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "CustomerReplyMultipart": {
+        "type": "object",
+        "required": ["external_user_id", "message"],
+        "properties": {
+          "external_user_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "message": { "type": "string", "minLength": 1 },
+          "files": { "type": "array", "maxItems": 5, "items": { "type": "string", "format": "binary" } }
+        },
+        "additionalProperties": false
+      },
+      "PublicAttachment": {
+        "type": "object",
+        "required": ["id", "file_name", "media_type", "size", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "file_name": { "type": "string", "maxLength": 255 },
+          "media_type": { "type": "string", "maxLength": 100 },
+          "size": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+          "created_at": { "type": "string", "format": "date-time" }
         },
         "additionalProperties": false
       },

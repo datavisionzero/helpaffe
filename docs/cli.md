@@ -47,7 +47,8 @@ only the selected source names and never prints a credential. Product keys
 | `ticket requester-tickets` / `ticket related` | List other tickets for the same requester within the source ticket's project |
 | `ticket next` | Atomically acquire the next eligible ticket |
 | `ticket wait` | Wait without acquiring until an open ticket or new customer reply is available |
-| `ticket reply`, `ticket note` | Add a public reply or internal note |
+| `ticket reply`, `ticket note` | Add a public reply or internal note, optionally with repeated `--file PATH` attachments |
+| `ticket attachment download NUMBER ATTACHMENT_ID --output PATH` | Stream one visible public or internal attachment to a new local file |
 | `ticket update` | Change status, priority, or assignee |
 | `ticket snooze NUMBER --until DATE_TIME`, `ticket unsnooze NUMBER` | Set or clear the UTC instant until which a ticket stays out of normal work queues |
 | `ticket reference add`, `ticket reference remove` | Attach or remove typed HTTPS development-task references; `ticket get` displays them |
@@ -93,6 +94,37 @@ helpaffe ticket reply HLP-42 --version 7 --message-file - <<'EOF'
 Thanks for the details. The fix is available now.
 EOF
 ```
+
+Public replies and private notes accept `--file PATH` up to five times. The CLI
+checks that each path is a non-empty regular file, enforces the server's 10 MiB
+per-file and 25 MiB combined limits, and validates PDF, PNG, JPEG, GIF, WebP,
+UTF-8 TXT/CSV, JSON, and ZIP content before streaming multipart data. A note's
+files always use the private note endpoint; a reply's files are public:
+
+```sh
+helpaffe ticket reply HLP-42 --version 7 --status waiting_for_customer \
+  --message "Please review the attached export." \
+  --file screenshot.png --file diagnostic.json
+
+helpaffe ticket note HLP-42 --version 8 \
+  --note "Internal trace for the next shift." --file trace.txt
+```
+
+`ticket get` includes `attachments` on every conversation entry, including
+`id`, `file_name`, `media_type`, `size`, `is_public`, and `created_at`. Download
+requires an explicit new output path and never overwrites an existing file:
+
+```sh
+helpaffe ticket attachment download HLP-42 ATTACHMENT_ID --output ./evidence.txt
+```
+
+With `--json`, reply and note return the complete updated ticket. Download
+returns one object containing `attachment_id`, `file_name`, `media_type`,
+`size`, and `path`; file bytes still go only to `--output`. Local failures use
+stable problem types under `/problems/cli/attachment-file`,
+`attachment-limit`, `attachment-too-large`, `attachment-type`, or
+`attachment-output`. API problem documents and the normal HTTP-derived exit
+codes are preserved.
 
 SMTP passwords have no inline CLI flag. `project email settings set` accepts
 only `--smtp-password-file`; omitting it preserves an already configured

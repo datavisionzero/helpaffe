@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, RefObject, useEffect, useRef, useState } from "react";
 import { call, CurrentUser, message, Project, requestKey, RequestError } from "./api";
 
 type TicketStatus = "open" | "in_progress" | "waiting_for_customer" | "resolved";
@@ -27,6 +27,15 @@ type ConversationEntry = {
   is_public: boolean;
   created_at: string;
   actor: { user_name: string | null; agent_name: string | null } | null;
+  attachments?: TicketAttachment[];
+};
+type TicketAttachment = {
+  id: string;
+  file_name: string;
+  media_type: string;
+  size: number;
+  is_public: boolean;
+  created_at: string;
 };
 type NotificationDelivery = {
   id: string;
@@ -60,6 +69,13 @@ type TicketDetail = {
 type TicketPage = { items: TicketSummary[]; next_cursor: string | null };
 type Queue = TicketStatus | "mine";
 type FieldDraft = { status: TicketStatus; priority: TicketPriority; assigneeId: string };
+type ComposerKind = "reply" | "note";
+
+const attachmentAccept = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.json,.zip";
+const allowedAttachmentExtensions = new Set(attachmentAccept.split(","));
+const maximumAttachmentFiles = 5;
+const maximumAttachmentFileSize = 10 * 1024 * 1024;
+const maximumAttachmentTotalSize = 25 * 1024 * 1024;
 
 const queues: { value: Queue; label: string }[] = [
   { value: "open", label: "Open" },
@@ -85,8 +101,15 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   const [requesterTicketsCursor, setRequesterTicketsCursor] = useState<string | null>(null);
   const [fieldDraft, setFieldDraft] = useState<FieldDraft | null>(null);
   const [reply, setReply] = useState("");
+  const [replyFiles, setReplyFiles] = useState<File[]>([]);
   const [replyStatus, setReplyStatus] = useState<TicketStatus>("waiting_for_customer");
   const [note, setNote] = useState("");
+  const [noteFiles, setNoteFiles] = useState<File[]>([]);
+  const [attachmentErrors, setAttachmentErrors] = useState<Record<ComposerKind, string>>({ reply: "", note: "" });
+  const [submitting, setSubmitting] = useState<ComposerKind | null>(null);
+  const [composerStatus, setComposerStatus] = useState("");
+  const replyFileInput = useRef<HTMLInputElement>(null);
+  const noteFileInput = useRef<HTMLInputElement>(null);
   const [snoozeUntil, setSnoozeUntil] = useState("");
   const [referenceDraft, setReferenceDraft] = useState({ type: "github", url: "", label: "" });
   const [composer, setComposer] = useState<"reply" | "note">("reply");
@@ -146,6 +169,12 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
         setFieldDraft(fieldsFrom(selected.summary));
         setReply("");
         setNote("");
+        setReplyFiles([]);
+        setNoteFiles([]);
+        setAttachmentErrors({ reply: "", note: "" });
+        setComposerStatus("");
+        if (replyFileInput.current) replyFileInput.current.value = "";
+        if (noteFileInput.current) noteFileInput.current.value = "";
       }
       setConflict(null);
       void loadAssignees(selected.summary.project.id, setTicketAssignees);
@@ -211,8 +240,10 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       setConflict(null);
       clear?.();
       await loadTickets();
+      return true;
     } catch (reason) {
       handleWriteError(reason);
+      return message(reason);
     }
   }
 
@@ -234,22 +265,63 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
 
   async function sendReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!detail || !reply.trim()) return;
-    await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/replies`, {
-      method: "POST",
-      headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
-      body: JSON.stringify({ message: reply, status: replyStatus }),
-    }), () => setReply(""));
+    if (!detail || !reply.trim() || attachmentErrors.reply) return;
+    setSubmitting("reply");
+    setComposerStatus(replyFiles.length === 0 ? "Sending public reply…" : `Uploading public reply with ${fileCount(replyFiles)}…`);
+    try {
+      const result = await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/replies`, {
+        method: "POST",
+        headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
+        body: ticketMessageBody(reply, replyStatus, replyFiles),
+      }), () => {
+        setReply("");
+        setReplyFiles([]);
+        if (replyFileInput.current) replyFileInput.current.value = "";
+      });
+      setComposerStatus(result === true
+        ? `Public reply sent${replyFiles.length ? ` with ${fileCount(replyFiles)}` : ""}.`
+        : `Upload not completed: ${result} Your reply and selected files were kept.`);
+    } finally {
+      setSubmitting(null);
+    }
   }
 
   async function addNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!detail || !note.trim()) return;
-    await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/notes`, {
-      method: "POST",
-      headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
-      body: JSON.stringify({ message: note }),
-    }), () => setNote(""));
+    if (!detail || !note.trim() || attachmentErrors.note) return;
+    setSubmitting("note");
+    setComposerStatus(noteFiles.length === 0 ? "Adding internal note…" : `Uploading internal note with ${fileCount(noteFiles)}…`);
+    try {
+      const result = await applyMutation(() => call<TicketDetail>(`/tickets/${encodeURIComponent(detail.summary.number)}/notes`, {
+        method: "POST",
+        headers: { "If-Match": `"${detail.summary.version}"`, "Idempotency-Key": requestKey() },
+        body: ticketMessageBody(note, null, noteFiles),
+      }), () => {
+        setNote("");
+        setNoteFiles([]);
+        if (noteFileInput.current) noteFileInput.current.value = "";
+      });
+      setComposerStatus(result === true
+        ? `Internal note added${noteFiles.length ? ` with ${fileCount(noteFiles)}` : ""}.`
+        : `Upload not completed: ${result} Your private note and selected files were kept.`);
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  function selectAttachments(kind: ComposerKind, files: File[]) {
+    if (kind === "reply") setReplyFiles(files);
+    else setNoteFiles(files);
+    setAttachmentErrors(current => ({ ...current, [kind]: validateAttachments(files) }));
+    setComposerStatus("");
+  }
+
+  function removeAttachment(kind: ComposerKind, index: number) {
+    const current = kind === "reply" ? replyFiles : noteFiles;
+    const remaining = current.filter((_, fileIndex) => fileIndex !== index);
+    selectAttachments(kind, remaining);
+    const input = kind === "reply" ? replyFileInput.current : noteFileInput.current;
+    if (input) input.value = "";
   }
 
   async function retryNotification(notificationId: string) {
@@ -371,7 +443,7 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
         {hasNewCustomerActivity && <div className="customer-activity" role="status"><strong>New customer activity</strong><span>The latest message came from the requester. Review it before replying.</span></div>}
         {detail.summary.snoozed_until && <div className="notice" role="status">Snoozed until {formatDate(detail.summary.snoozed_until)}. Direct work remains available.</div>}
         {conflict && <div className="conflict" role="alert">
-          <div><strong>This ticket changed while you were working.</strong><span>{conflict.detail} Your draft has been kept{conflict.currentVersion ? `; the current version is ${conflict.currentVersion}` : ""}.</span></div>
+          <div><strong>This ticket changed while you were working.</strong><span>{conflict.detail} Your draft and selected files have been kept{conflict.currentVersion ? `; the current version is ${conflict.currentVersion}` : ""}.</span></div>
           <button onClick={() => void openTicket(detail.summary.number, true)}>Reload ticket</button>
         </div>}
         <div className="ticket-layout">
@@ -380,21 +452,49 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
               {detail.conversation.map(entry => <li className={`conversation-entry ${entry.kind}`} key={entry.id}>
                 <div className="entry-heading"><span className="entry-kind">{kindLabel(entry.kind)}</span><time>{formatDate(entry.created_at)}</time></div>
                 <p>{entry.body}</p>
+                {(entry.attachments ?? []).length > 0 && <ul className="entry-attachments" aria-label={`${kindLabel(entry.kind)} attachments`}>
+                  {(entry.attachments ?? []).map(attachment => <li key={attachment.id}>
+                    <a href={`/api/backoffice/tickets/${encodeURIComponent(detail.summary.number)}/attachments/${encodeURIComponent(attachment.id)}`} download={attachment.file_name} aria-label={`Download ${attachment.file_name}`}>
+                      <span className="attachment-name">{attachment.file_name}</span>
+                      <span className="attachment-meta">{attachment.media_type} · {formatBytes(attachment.size)}</span>
+                    </a>
+                    <span className={`attachment-visibility ${attachment.is_public ? "public" : "internal"}`}>
+                      {attachment.is_public ? "Customer-visible" : "Internal only"}
+                    </span>
+                  </li>)}
+                </ul>}
                 {entry.actor && <span className="entry-actor">{entry.actor.user_name}{entry.actor.agent_name ? ` via ${entry.actor.agent_name}` : ""}</span>}
               </li>)}
             </ol>
             <div className="composer">
               <div className="composer-tabs" role="tablist" aria-label="Compose message">
-                <button type="button" role="tab" aria-selected={composer === "reply"} className={composer === "reply" ? "active" : ""} onClick={() => setComposer("reply")}>Public reply</button>
-                <button type="button" role="tab" aria-selected={composer === "note"} className={composer === "note" ? "active" : ""} onClick={() => setComposer("note")}>Internal note</button>
+                <button type="button" role="tab" aria-selected={composer === "reply"} className={composer === "reply" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("reply"); setComposerStatus(""); }}>Public reply</button>
+                <button type="button" role="tab" aria-selected={composer === "note"} className={composer === "note" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("note"); setComposerStatus(""); }}>Internal note</button>
               </div>
-              {composer === "reply" ? <form onSubmit={sendReply}>
+              {composer === "reply" ? <form onSubmit={sendReply} aria-busy={submitting === "reply"}>
                 <label>Reply to {detail.requester.name}<textarea aria-label="Public reply" value={reply} onChange={event => setReply(event.target.value)} rows={6} required /></label>
-                <div className="composer-actions"><label>After sending<select value={replyStatus} onChange={event => setReplyStatus(event.target.value as TicketStatus)}><option value="in_progress">Keep in progress</option><option value="waiting_for_customer">Wait for customer</option><option value="resolved">Resolve</option></select></label><button disabled={!reply.trim()}>Send reply</button></div>
-              </form> : <form onSubmit={addNote}>
+                <AttachmentPicker
+                  kind="reply"
+                  files={replyFiles}
+                  error={attachmentErrors.reply}
+                  busy={submitting === "reply"}
+                  inputRef={replyFileInput}
+                  onChange={files => selectAttachments("reply", files)}
+                  onRemove={index => removeAttachment("reply", index)} />
+                <div className="composer-actions"><label>After sending<select value={replyStatus} onChange={event => setReplyStatus(event.target.value as TicketStatus)}><option value="in_progress">Keep in progress</option><option value="waiting_for_customer">Wait for customer</option><option value="resolved">Resolve</option></select></label><button disabled={!reply.trim() || !!attachmentErrors.reply || submitting !== null}>{submitting === "reply" ? "Sending…" : "Send reply"}</button></div>
+              </form> : <form onSubmit={addNote} aria-busy={submitting === "note"}>
                 <label>Private support note<textarea aria-label="Internal note" value={note} onChange={event => setNote(event.target.value)} rows={5} required /></label>
-                <div className="composer-actions"><span className="muted">Only support users and their agents can see this.</span><button className="note-button" disabled={!note.trim()}>Add note</button></div>
+                <AttachmentPicker
+                  kind="note"
+                  files={noteFiles}
+                  error={attachmentErrors.note}
+                  busy={submitting === "note"}
+                  inputRef={noteFileInput}
+                  onChange={files => selectAttachments("note", files)}
+                  onRemove={index => removeAttachment("note", index)} />
+                <div className="composer-actions"><span className="muted">Only support users and their agents can see this note and its files.</span><button className="note-button" disabled={!note.trim() || !!attachmentErrors.note || submitting !== null}>{submitting === "note" ? "Adding…" : "Add note"}</button></div>
               </form>}
+              {composerStatus && <p className="composer-status" role="status">{composerStatus}</p>}
             </div>
           </div>
           <aside className="ticket-sidebar">
@@ -463,6 +563,88 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       </>}
     </section>
   </div>;
+}
+
+function AttachmentPicker({
+  kind,
+  files,
+  error,
+  busy,
+  inputRef,
+  onChange,
+  onRemove,
+}: {
+  kind: ComposerKind;
+  files: File[];
+  error: string;
+  busy: boolean;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onChange: (files: File[]) => void;
+  onRemove: (index: number) => void;
+}) {
+  const isPublic = kind === "reply";
+  const helpId = `${kind}-attachment-help`;
+  const errorId = `${kind}-attachment-error`;
+  return <fieldset className={`attachment-picker ${isPublic ? "public" : "internal"}`}>
+    <legend>{isPublic ? "Public attachments" : "Internal attachments"}</legend>
+    <p className="attachment-guidance" id={helpId}>
+      {isPublic ? "Customers can see and download these files." : "Only support users and their agents can see these files."}
+      {" "}Up to 5 files, 10 MiB each, 25 MiB total. PDF, images, TXT, CSV, JSON, or ZIP.
+    </p>
+    <label>{isPublic ? "Attach files to public reply" : "Attach files to internal note"}
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={attachmentAccept}
+        disabled={busy}
+        aria-describedby={`${helpId}${error ? ` ${errorId}` : ""}`}
+        onChange={event => onChange(Array.from(event.target.files ?? []))} />
+    </label>
+    {error && <p className="attachment-error" id={errorId} role="alert">{error}</p>}
+    {files.length > 0 && <ul className="selected-attachments" aria-label={`Selected ${isPublic ? "public" : "internal"} attachments`}>
+      {files.map((file, index) => <li key={`${file.name}-${file.size}-${file.lastModified}-${index}`}>
+        <span><strong>{file.name}</strong><small>{file.type || "Type determined on upload"} · {formatBytes(file.size)}</small></span>
+        <button type="button" className="secondary compact" disabled={busy} onClick={() => onRemove(index)}>Remove {file.name}</button>
+      </li>)}
+    </ul>}
+  </fieldset>;
+}
+
+function ticketMessageBody(message: string, status: TicketStatus | null, files: File[]) {
+  if (files.length === 0) return JSON.stringify(status === null ? { message } : { message, status });
+  const body = new FormData();
+  body.set("message", message);
+  if (status !== null) body.set("status", status);
+  for (const file of files) body.append("files", file, file.name);
+  return body;
+}
+
+function validateAttachments(files: File[]) {
+  if (files.length > maximumAttachmentFiles) return `Choose at most ${maximumAttachmentFiles} files.`;
+  const unsupported = files.find(file => {
+    const dot = file.name.lastIndexOf(".");
+    return dot < 0 || !allowedAttachmentExtensions.has(file.name.slice(dot).toLowerCase());
+  });
+  if (unsupported) return `${unsupported.name} is not an allowed file type.`;
+  const empty = files.find(file => file.size < 1);
+  if (empty) return `${empty.name} is empty.`;
+  const oversized = files.find(file => file.size > maximumAttachmentFileSize);
+  if (oversized) return `${oversized.name} is larger than 10 MiB.`;
+  if (files.reduce((total, file) => total + file.size, 0) > maximumAttachmentTotalSize) {
+    return "Selected files are larger than 25 MiB in total.";
+  }
+  return "";
+}
+
+function fileCount(files: File[]) {
+  return `${files.length} ${files.length === 1 ? "attachment" : "attachments"}`;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function fieldsFrom(summary: TicketSummary): FieldDraft {

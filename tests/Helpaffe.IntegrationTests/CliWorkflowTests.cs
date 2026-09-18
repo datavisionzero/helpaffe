@@ -24,10 +24,16 @@ public sealed class CliWorkflowTests : IAsyncLifetime
         .WithUsername("helpaffe")
         .WithPassword("helpaffe-cli-tests")
         .Build();
+    private readonly string _attachmentRoot = Path.Combine(
+        Path.GetTempPath(), $"helpaffe-cli-attachments-{Guid.NewGuid():N}");
 
     public ValueTask InitializeAsync() => new(_postgres.StartAsync());
 
-    public ValueTask DisposeAsync() => new(_postgres.DisposeAsync().AsTask());
+    public async ValueTask DisposeAsync()
+    {
+        await _postgres.DisposeAsync();
+        if (Directory.Exists(_attachmentRoot)) Directory.Delete(_attachmentRoot, recursive: true);
+    }
 
     [Fact]
     public async Task Two_products_sdk_agent_cli_web_contract_and_email_complete_the_first_support_case()
@@ -77,6 +83,10 @@ public sealed class CliWorkflowTests : IAsyncLifetime
                     "This belongs to a different product."),
                 "sdk-create-hidden", cancellationToken);
             await BuildCli(root, cliPath, cancellationToken);
+            var privateAttachmentPath = Path.Combine(cliDirectory, "internal-trace.txt");
+            await File.WriteAllTextAsync(privateAttachmentPath, "private CLI evidence", cancellationToken);
+            var publicAttachmentPath = Path.Combine(cliDirectory, "customer-steps.json");
+            await File.WriteAllTextAsync(publicAttachmentPath, "{\"step\":\"retry\"}", cancellationToken);
 
             var createdSolution = await RunCli(cliPath, baseUrl, setup.AgentToken,
                 ["--json", "solution", "create", setup.FirstProjectId.ToString(), "--key", "postgres-restart", "--title", "Restart PostgreSQL safely", "--markdown-file", "-"],
@@ -167,20 +177,57 @@ public sealed class CliWorkflowTests : IAsyncLifetime
             var acquiredVersion = acquiredSummary.GetProperty("version").GetInt32();
 
             var noted = await RunCli(cliPath, baseUrl, setup.AgentToken,
-                ["--json", "ticket", "note", source.Summary.Number, "--version", acquiredVersion.ToString(), "--note-file", "-"],
+                ["--json", "ticket", "note", source.Summary.Number, "--version", acquiredVersion.ToString(), "--note-file", "-", "--file", privateAttachmentPath],
                 "Investigated through stdin.\r\n", cancellationToken);
             Assert.Equal(0, noted.ExitCode);
             using var notedJson = JsonDocument.Parse(noted.StandardOutput);
             var notedVersion = notedJson.RootElement.GetProperty("summary").GetProperty("version").GetInt32();
+            var noteEntry = notedJson.RootElement.GetProperty("conversation").EnumerateArray().Last();
+            var privateAttachment = Assert.Single(noteEntry.GetProperty("attachments").EnumerateArray());
+            Assert.False(privateAttachment.GetProperty("is_public").GetBoolean());
+            Assert.Equal("internal-trace.txt", privateAttachment.GetProperty("file_name").GetString());
 
             var waiting = await RunCli(cliPath, baseUrl, setup.AgentToken,
-                ["--json", "ticket", "reply", source.Summary.Number, "--version", notedVersion.ToString(), "--status", "waiting_for_customer", "--message-file", "-"],
+                ["--json", "ticket", "reply", source.Summary.Number, "--version", notedVersion.ToString(), "--status", "waiting_for_customer", "--message-file", "-", "--file", publicAttachmentPath],
                 "Please send one more detail.\n", cancellationToken);
             Assert.Equal(0, waiting.ExitCode);
             using var waitingJson = JsonDocument.Parse(waiting.StandardOutput);
             var waitingSummary = waitingJson.RootElement.GetProperty("summary");
             Assert.Equal("waiting_for_customer", waitingSummary.GetProperty("status").GetString());
             var waitingVersion = waitingSummary.GetProperty("version").GetInt32();
+            var replyEntry = waitingJson.RootElement.GetProperty("conversation").EnumerateArray()
+                .Last(value => value.GetProperty("kind").GetString() == "public_reply");
+            var publicAttachments = replyEntry.GetProperty("attachments").EnumerateArray().ToArray();
+            Assert.True(publicAttachments.Length == 1, $"Expected one public attachment. CLI output: {waiting.StandardOutput}");
+            var publicAttachment = publicAttachments[0];
+            Assert.True(publicAttachment.GetProperty("is_public").GetBoolean());
+            Assert.Equal("customer-steps.json", publicAttachment.GetProperty("file_name").GetString());
+
+            var downloadedPath = Path.Combine(cliDirectory, "downloaded-internal.txt");
+            var downloaded = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "ticket", "attachment", "download", source.Summary.Number,
+                    privateAttachment.GetProperty("id").GetGuid().ToString(), "--output", downloadedPath],
+                null, cancellationToken);
+            Assert.Equal(0, downloaded.ExitCode);
+            using var downloadedJson = JsonDocument.Parse(downloaded.StandardOutput);
+            Assert.Equal("internal-trace.txt", downloadedJson.RootElement.GetProperty("file_name").GetString());
+            Assert.Equal("private CLI evidence", await File.ReadAllTextAsync(downloadedPath, cancellationToken));
+
+            var noOverwrite = await RunCli(cliPath, baseUrl, setup.AgentToken,
+                ["--json", "ticket", "attachment", "download", source.Summary.Number,
+                    privateAttachment.GetProperty("id").GetGuid().ToString(), "--output", downloadedPath],
+                null, cancellationToken);
+            Assert.Equal(2, noOverwrite.ExitCode);
+            Assert.Empty(noOverwrite.StandardOutput);
+            using var noOverwriteJson = JsonDocument.Parse(noOverwrite.StandardError);
+            Assert.Equal("/problems/cli/attachment-output", noOverwriteJson.RootElement.GetProperty("type").GetString());
+
+            var productView = await firstProduct.GetTicketAsync(
+                source.Summary.Number, externalUserId, cancellationToken);
+            Assert.DoesNotContain(productView.Conversation.SelectMany(value => value.Attachments),
+                value => value.FileName == "internal-trace.txt");
+            Assert.Contains(productView.Conversation.SelectMany(value => value.Attachments),
+                value => value.FileName == "customer-steps.json");
 
             var customerReply = await firstProduct.AddReplyAsync(
                 source.Summary.Number, externalUserId, "Here is the missing detail.", waitingVersion,
@@ -234,6 +281,7 @@ public sealed class CliWorkflowTests : IAsyncLifetime
 
             await using var database = CreateDatabase();
             var ticket = await database.Tickets.Include(value => value.Conversation)
+                .Include(value => value.Attachments)
                 .SingleAsync(value => value.Number == source.Summary.Number, cancellationToken);
             Assert.Equal(TicketStatus.Resolved, ticket.Status);
             Assert.Contains(ticket.Conversation, value =>
@@ -242,6 +290,8 @@ public sealed class CliWorkflowTests : IAsyncLifetime
                 value.Kind is ConversationEntryKind.PublicReply && value.Body == "This is resolved.");
             Assert.Single(ticket.Conversation, value =>
                 value.Kind is ConversationEntryKind.CustomerMessage && value.Body == "Here is the missing detail.");
+            Assert.Contains(ticket.Attachments, value => value.FileName == "internal-trace.txt" && !value.IsPublic);
+            Assert.Contains(ticket.Attachments, value => value.FileName == "customer-steps.json" && value.IsPublic);
         }
         finally
         {
@@ -277,6 +327,7 @@ public sealed class CliWorkflowTests : IAsyncLifetime
         start.Environment["Bootstrap__Email"] = "cli-admin@example.test";
         start.Environment["Bootstrap__Password"] = AdminPassword;
         start.Environment["Secrets__EncryptionKey"] = EncryptionKey;
+        start.Environment["Attachments__RootPath"] = _attachmentRoot;
         start.Environment["Logging__LogLevel__Default"] = "Warning";
         return Process.Start(start) ?? throw new InvalidOperationException("Could not start the API process.");
     }
