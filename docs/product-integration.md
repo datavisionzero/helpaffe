@@ -32,6 +32,26 @@ curl "$HELPAFFE_URL/api/product/tickets" \
 The optional `context` is an immutable JSON object of at most 16 KiB. Do not
 put passwords, session tokens, product API keys, or other credentials in it.
 
+To attach files, send the same fields as `multipart/form-data`; repeat the
+`files` part for up to five attachments. Each file may contain at most 10 MiB
+and all files on one message at most 25 MiB. The accepted formats are PDF, PNG,
+JPEG, GIF, WebP, UTF-8 TXT/CSV, JSON, and ZIP. helpaffe verifies the extension,
+declared type, and file signature or text encoding.
+
+```sh
+curl "$HELPAFFE_URL/api/product/tickets" \
+  -X POST \
+  -H "Authorization: Bearer $HELPAFFE_PRODUCT_KEY" \
+  -H 'Idempotency-Key: 01J-example-create-with-files' \
+  -F "external_user_id=$EXTERNAL_USER_ID" \
+  -F 'name=Ada User' \
+  -F 'email=ada@example.test' \
+  -F 'subject=Settings are blank' \
+  -F 'message=I cannot open settings.' \
+  -F 'context={"product_version":"2.4.1","page":"/settings"}' \
+  -F 'files=@screenshot.png;type=image/png'
+```
+
 List and read tickets by the stable external user id. The key supplies the
 project, so no project id is accepted.
 
@@ -63,3 +83,17 @@ If another actor changed the ticket, helpaffe returns `412 stale` with
 `application/problem+json`. Product responses contain only customer messages
 and public support replies—never internal notes, support instructions,
 assignees, or administration.
+
+Each public conversation entry includes an `attachments` array. Download one
+through the product backend with the same product key and external user id:
+
+```sh
+curl --get "$HELPAFFE_URL/api/product/tickets/HLP-0123456789ABCDEF0123/attachments/ATTACHMENT_UUID" \
+  -H "Authorization: Bearer $HELPAFFE_PRODUCT_KEY" \
+  --data-urlencode "external_user_id=$EXTERNAL_USER_ID" \
+  --output attachment.bin
+```
+
+The product surface never returns or downloads attachments on internal notes.
+The product backend must proxy or stream downloads to its authenticated user;
+do not expose the product key in a browser download URL.

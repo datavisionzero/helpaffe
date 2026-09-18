@@ -7,6 +7,7 @@ public sealed class Ticket
 {
     private readonly List<ConversationEntry> _conversation = [];
     private readonly List<DevelopmentReference> _developmentReferences = [];
+    private readonly List<TicketAttachment> _attachments = [];
 
     private Ticket()
     {
@@ -76,6 +77,40 @@ public sealed class Ticket
     public DateTimeOffset? SnoozedUntil { get; private set; }
     public IReadOnlyCollection<ConversationEntry> Conversation => _conversation.AsReadOnly();
     public IReadOnlyCollection<DevelopmentReference> DevelopmentReferences => _developmentReferences.AsReadOnly();
+    public IReadOnlyCollection<TicketAttachment> Attachments => _attachments.AsReadOnly();
+
+    public TicketAttachment AddAttachment(
+        Guid attachmentId,
+        Guid conversationEntryId,
+        string fileName,
+        string mediaType,
+        long size,
+        string storageKey,
+        DateTimeOffset createdAt)
+    {
+        var entry = _conversation.SingleOrDefault(value => value.Id == conversationEntryId)
+            ?? throw new ArgumentException("The conversation entry does not belong to this ticket.", nameof(conversationEntryId));
+        if (entry.Kind is ConversationEntryKind.SystemEvent)
+            throw new ArgumentException("System events cannot have attachments.", nameof(conversationEntryId));
+        if (_attachments.Count(value => value.ConversationEntryId == conversationEntryId) >= TicketAttachment.MaximumFilesPerMessage)
+            throw new InvalidOperationException($"A conversation entry may have at most {TicketAttachment.MaximumFilesPerMessage} attachments.");
+        if (_attachments.Where(value => value.ConversationEntryId == conversationEntryId).Sum(value => value.Size) + size > TicketAttachment.MaximumTotalSize)
+            throw new InvalidOperationException($"Attachments on one conversation entry may contain at most {TicketAttachment.MaximumTotalSize} bytes in total.");
+
+        var attachment = new TicketAttachment(
+            attachmentId,
+            ProjectId,
+            Id,
+            conversationEntryId,
+            fileName,
+            mediaType,
+            size,
+            storageKey,
+            entry.IsPublic,
+            createdAt);
+        _attachments.Add(attachment);
+        return attachment;
+    }
 
     public void AddCustomerMessage(Guid entryId, string body, DateTimeOffset createdAt)
     {

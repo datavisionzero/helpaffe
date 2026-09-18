@@ -20,6 +20,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<ConversationEntry> ConversationEntries => Set<ConversationEntry>();
+    public DbSet<TicketAttachment> TicketAttachments => Set<TicketAttachment>();
     public DbSet<DevelopmentReference> DevelopmentReferences => Set<DevelopmentReference>();
     public DbSet<SolutionArticle> SolutionArticles => Set<SolutionArticle>();
     public DbSet<ProjectEmailSettingsRecord> ProjectEmailSettings => Set<ProjectEmailSettingsRecord>();
@@ -114,6 +115,7 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         ticket.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.AssigneeUserId).OnDelete(DeleteBehavior.SetNull);
         ticket.HasMany(value => value.Conversation).WithOne().HasForeignKey(value => value.TicketId).OnDelete(DeleteBehavior.Cascade);
         ticket.HasMany(value => value.DevelopmentReferences).WithOne().HasForeignKey(value => value.TicketId).OnDelete(DeleteBehavior.Cascade);
+        ticket.HasMany(value => value.Attachments).WithOne().HasForeignKey(value => value.TicketId).OnDelete(DeleteBehavior.Cascade);
 
         var entry = modelBuilder.Entity<ConversationEntry>();
         entry.ToTable("ticket_conversation");
@@ -123,6 +125,27 @@ public sealed class HelpaffeDbContext(DbContextOptions<HelpaffeDbContext> option
         entry.HasIndex(value => new { value.TicketId, value.Sequence }).IsUnique();
         entry.HasOne<UserRecord>().WithMany().HasForeignKey(value => value.ActorUserId).OnDelete(DeleteBehavior.Restrict);
         entry.HasOne<AgentCredentialRecord>().WithMany().HasForeignKey(value => value.ActingAgentCredentialId).OnDelete(DeleteBehavior.Restrict);
+
+        var attachment = modelBuilder.Entity<TicketAttachment>();
+        attachment.ToTable("ticket_attachments", table =>
+        {
+            table.HasCheckConstraint("CK_ticket_attachments_Size", $"\"size\" > 0 AND \"size\" <= {TicketAttachment.MaximumFileSize}");
+            table.HasCheckConstraint("CK_ticket_attachments_StorageKey", "length(\"storage_key\") = 64");
+        });
+        attachment.HasKey(value => value.Id);
+        attachment.Property(value => value.ProjectId).HasColumnName("project_id");
+        attachment.Property(value => value.TicketId).HasColumnName("ticket_id");
+        attachment.Property(value => value.ConversationEntryId).HasColumnName("conversation_entry_id");
+        attachment.Property(value => value.FileName).HasColumnName("file_name").HasMaxLength(255);
+        attachment.Property(value => value.MediaType).HasColumnName("media_type").HasMaxLength(100);
+        attachment.Property(value => value.Size).HasColumnName("size");
+        attachment.Property(value => value.StorageKey).HasColumnName("storage_key").HasMaxLength(64);
+        attachment.Property(value => value.IsPublic).HasColumnName("is_public");
+        attachment.Property(value => value.CreatedAt).HasColumnName("created_at");
+        attachment.HasIndex(value => value.StorageKey).IsUnique();
+        attachment.HasIndex(value => new { value.ConversationEntryId, value.CreatedAt, value.Id });
+        attachment.HasOne<ProjectRecord>().WithMany().HasForeignKey(value => value.ProjectId).OnDelete(DeleteBehavior.Restrict);
+        attachment.HasOne<ConversationEntry>().WithMany().HasForeignKey(value => value.ConversationEntryId).OnDelete(DeleteBehavior.Cascade);
 
         var developmentReference = modelBuilder.Entity<DevelopmentReference>();
         developmentReference.ToTable("ticket_development_references");

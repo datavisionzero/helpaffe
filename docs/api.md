@@ -80,6 +80,8 @@ data needed to recover. The initial status conventions are:
 | 404 | `not-found` | The resource does not exist or is outside the caller's visible scope |
 | 409 | `idempotency-mismatch` | A request key was reused for another request |
 | 412 | `stale` | `If-Match` does not match the current ticket version |
+| 413 | `attachment-too-large` | One file or the combined attachments exceed the documented limit |
+| 415 | `content-type`, `attachment-type` | The request or attachment format is unsupported or does not match its content |
 | 422 | `transition` | The requested domain transition is not allowed |
 | 428 | `version-required` | A ticket mutation omitted `If-Match` |
 | 429 | `throttled` | A rate limit was reached; `Retry-After` is present |
@@ -178,6 +180,7 @@ when an agent belongs to an administrator.
 | `GET /api/product/tickets?external_user_id=...` | List only that end user's tickets in the key's project |
 | `GET /api/product/tickets/{number}?external_user_id=...` | Read that end user's ticket and public conversation |
 | `POST /api/product/tickets/{number}/replies` | Add a customer message to that end user's ticket |
+| `GET /api/product/tickets/{number}/attachments/{attachmentId}?external_user_id=...` | Download a public attachment for that end user |
 
 Administrator and administrator-agent notification configuration is defined in
 the backoffice OpenAPI contract and described in
@@ -220,6 +223,7 @@ operations are:
 | `DELETE /api/backoffice/tickets/{number}/development-references/{referenceId}` | Remove one task reference |
 | `POST /api/backoffice/tickets/{number}/replies` | Atomically add a public reply and its resulting status |
 | `POST /api/backoffice/tickets/{number}/notes` | Add an internal support note |
+| `GET /api/backoffice/tickets/{number}/attachments/{attachmentId}` | Download a visible public or internal attachment |
 | `POST /api/backoffice/tickets/{number}/notifications/{notificationId}/retry` | Retry one failed email delivery without changing the ticket version or conversation |
 | `GET /api/backoffice/projects/{projectId}/support-instructions` | Read project Markdown instructions within current project scope |
 | `PUT /api/backoffice/projects/{projectId}/support-instructions` | Replace instructions as an administrator or administrator agent |
@@ -288,6 +292,17 @@ Repeating the same request for 24 hours returns its original
 body and ETag without adding another conversation entry; reuse for a different
 request returns `idempotency-mismatch`.
 
+Replies and notes accept their existing JSON bodies or `multipart/form-data`.
+Multipart requests use the same scalar field names and repeat a `files` part.
+Ticket creation and customer replies follow the same convention on the product
+surface. A message may contain up to five files, each at most 10 MiB and at most
+25 MiB combined. Allowed formats are PDF, PNG, JPEG, GIF, WebP, UTF-8 TXT/CSV,
+JSON, and ZIP. The server checks file names, extensions, declared media types,
+and signatures or text encoding before persisting anything. An attachment is
+immutable and inherits the visibility of its conversation entry. Downloads
+re-evaluate project, ticket, requester, and public/internal scope; paths and
+storage keys are never accepted from a caller.
+
 ## Product ticket operations
 
 The checked-in [`product.openapi.json`](api/product.openapi.json) is the
@@ -311,3 +326,10 @@ administration. Product ticket creation and customer replies require an
 `Idempotency-Key`; replies additionally require the latest ticket ETag in
 `If-Match`. A customer reply reopens Waiting for Customer or Resolved tickets,
 while an In Progress or already Open ticket retains its status.
+
+Public conversation entries include attachment metadata. A product credential
+can download only public attachments belonging to the same ticket, project,
+and `external_user_id`; internal-note attachments are indistinguishable from a
+missing resource. Notification message text lists public attachment names and
+links recipients to the configured authenticated ticket view rather than
+exposing storage URLs.

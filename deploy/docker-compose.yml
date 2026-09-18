@@ -12,8 +12,11 @@ services:
       Bootstrap__Email: ${HELPAFFE_BOOTSTRAP_EMAIL:?set HELPAFFE_BOOTSTRAP_EMAIL in deploy/.env}
       Bootstrap__Password: ${HELPAFFE_BOOTSTRAP_PASSWORD:?set HELPAFFE_BOOTSTRAP_PASSWORD in deploy/.env}
       Secrets__EncryptionKey: ${HELPAFFE_SECRETS_ENCRYPTION_KEY:?set HELPAFFE_SECRETS_ENCRYPTION_KEY in deploy/.env}
+      Attachments__RootPath: /var/lib/helpaffe/attachments
     ports:
       - "${HELPAFFE_HTTP_PORT:-5066}:8080"
+    volumes:
+      - helpaffe-attachments:/var/lib/helpaffe/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -43,3 +46,4 @@ services:
 
 volumes:
   helpaffe-db:
+  helpaffe-attachments:

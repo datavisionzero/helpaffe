@@ -1,10 +1,14 @@
 using Helpaffe.Api.Hosting;
 using Helpaffe.Api.Http;
+using Helpaffe.Application.Attachments;
+using Helpaffe.Domain.Tickets;
+using Helpaffe.Infrastructure.Attachments;
 using Helpaffe.Infrastructure.Persistence;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +16,15 @@ var connectionString = builder.Configuration.GetConnectionString("Database")
     ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
 
 builder.Services.AddDbContextFactory<HelpaffeDbContext>(options => options.UseNpgsql(connectionString));
+var attachmentRoot = builder.Configuration["Attachments:RootPath"];
+if (string.IsNullOrWhiteSpace(attachmentRoot))
+    attachmentRoot = Path.Combine(builder.Environment.ContentRootPath, "data", "attachments");
+builder.Services.AddSingleton<IAttachmentStorage>(new LocalAttachmentStorage(attachmentRoot));
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = TicketAttachment.MaximumTotalSize + 1024 * 1024;
+    options.ValueLengthLimit = 64 * 1024;
+});
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<NotificationDispatcher>();
 builder.Services.AddSingleton<TicketWorkNotifier>();

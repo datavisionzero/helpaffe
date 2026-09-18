@@ -189,7 +189,10 @@
         "operationId": "replyToTicket",
         "summary": "Atomically add a public reply and set its resulting status",
         "parameters": [{ "$ref": "#/components/parameters/IfMatch" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddReply" } } } },
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/AddReply" } },
+          "multipart/form-data": { "schema": { "$ref": "#/components/schemas/AddReplyMultipart" } }
+        } },
         "responses": {
           "200": { "description": "Updated or replayed ticket context", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
@@ -207,7 +210,10 @@
         "operationId": "addTicketNote",
         "summary": "Add a support-only internal note",
         "parameters": [{ "$ref": "#/components/parameters/IfMatch" }, { "$ref": "#/components/parameters/IdempotencyKey" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddNote" } } } },
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/AddNote" } },
+          "multipart/form-data": { "schema": { "$ref": "#/components/schemas/AddNoteMultipart" } }
+        } },
         "responses": {
           "200": { "description": "Updated or replayed ticket context", "headers": { "ETag": { "$ref": "#/components/headers/ETag" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
@@ -216,6 +222,21 @@
           "409": { "$ref": "#/components/responses/Conflict" },
           "412": { "$ref": "#/components/responses/Stale" },
           "428": { "$ref": "#/components/responses/VersionRequired" }
+        }
+      }
+    },
+    "/tickets/{number}/attachments/{attachmentId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TicketNumber" },
+        { "name": "attachmentId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "operationId": "downloadTicketAttachment",
+        "summary": "Download one public or internal attachment in the caller's project scope",
+        "responses": {
+          "200": { "description": "Attachment bytes", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
     },
@@ -553,7 +574,7 @@
       },
       "ConversationEntry": {
         "type": "object",
-        "required": ["id", "sequence", "kind", "body", "is_public", "created_at", "actor"],
+        "required": ["id", "sequence", "kind", "body", "is_public", "created_at", "actor", "attachments"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "sequence": { "type": "integer", "minimum": 1 },
@@ -561,7 +582,8 @@
           "body": { "type": "string" },
           "is_public": { "type": "boolean" },
           "created_at": { "type": "string", "format": "date-time" },
-          "actor": { "$ref": "#/components/schemas/Actor" }
+          "actor": { "$ref": "#/components/schemas/Actor" },
+          "attachments": { "type": "array", "items": { "$ref": "#/components/schemas/Attachment" } }
         },
         "additionalProperties": false
       },
@@ -628,10 +650,42 @@
         },
         "additionalProperties": false
       },
+      "AddReplyMultipart": {
+        "type": "object",
+        "required": ["message", "status"],
+        "properties": {
+          "message": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["in_progress", "waiting_for_customer", "resolved"] },
+          "files": { "type": "array", "maxItems": 5, "items": { "type": "string", "format": "binary" } }
+        },
+        "additionalProperties": false
+      },
       "AddNote": {
         "type": "object",
         "required": ["message"],
         "properties": { "message": { "type": "string", "minLength": 1 } },
+        "additionalProperties": false
+      },
+      "AddNoteMultipart": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string", "minLength": 1 },
+          "files": { "type": "array", "maxItems": 5, "items": { "type": "string", "format": "binary" } }
+        },
+        "additionalProperties": false
+      },
+      "Attachment": {
+        "type": "object",
+        "required": ["id", "file_name", "media_type", "size", "is_public", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "file_name": { "type": "string", "maxLength": 255 },
+          "media_type": { "type": "string", "maxLength": 100 },
+          "size": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+          "is_public": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" }
+        },
         "additionalProperties": false
       },
       "EmailTemplateType": {
