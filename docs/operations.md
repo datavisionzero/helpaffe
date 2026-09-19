@@ -80,6 +80,25 @@ written by the application to `Attachments:RootPath`; the production Compose
 file mounts that path from the attachment volume. There is no separate object
 store, upload service, or language service.
 
+## Application logs
+
+The API writes JSON logs to the console, including notification worker errors.
+Read them with `docker compose logs helpaffe` for the published stack, or with
+`docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs helpaffe`
+for a source build. To also deliver entries to a logaffe installation, set both
+`HELPAFFE_LOGAFFE_URL` and `HELPAFFE_LOGAFFE_TOKEN` in the deployment `.env` and
+restart the application.
+The URL is the absolute HTTP or HTTPS address of the installation; the client
+appends the ingest path. The token is a secret and selects the logaffe project.
+Keep it in the deployment secret store, never in source control or application
+logs.
+
+Both Compose variants pass these values to `Observability:Logaffe:Url` and
+`Observability:Logaffe:IngestToken`. If both are empty, only console logging is
+active. If one is missing or the URL is invalid, startup fails with a
+configuration error. Logaffe delivery uses a bounded in-memory queue; console
+logs remain available if delivery fails.
+
 ## SMTP secret encryption
 
 Set `HELPAFFE_SECRETS_ENCRYPTION_KEY` to one Base64-encoded 32-byte value before

@@ -8,4 +8,7 @@
     <ProjectReference Include="../Helpaffe.Application/Helpaffe.Application.csproj" />
     <ProjectReference Include="../Helpaffe.Infrastructure/Helpaffe.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Logaffe.Extensions.Logging" />
+  </ItemGroup>
 </Project>

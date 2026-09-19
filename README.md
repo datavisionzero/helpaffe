@@ -2,20 +2,22 @@
 
 Helpdesk made easy and agentic for self-hosters.
 
-## First release
+## Current release
 
-Version `0.1.0` is the first self-hosted release. The application image is
+Version `0.1.1` is the current self-hosted release. The application image is
 published for `linux/amd64` and `linux/arm64` as
-`ghcr.io/datavisionzero/helpaffe:0.1.0`; matching `helpaffe` CLI archives are
+`ghcr.io/datavisionzero/helpaffe:0.1.1`; matching `helpaffe` CLI archives are
 attached to the [GitHub release](https://github.com/datavisionzero/helpaffe/releases).
 This is a `0.x` release: check the notes and back up data before upgrading.
+This release can deliver JSON logs to a logaffe installation when its URL and
+ingest token are configured; console logging remains available.
 
 An installation needs only the published Compose file and an environment file,
 not this source checkout:
 
 ```sh
 mkdir helpaffe && cd helpaffe
-base=https://raw.githubusercontent.com/datavisionzero/helpaffe/v0.1.0/deploy
+base=https://raw.githubusercontent.com/datavisionzero/helpaffe/v0.1.1/deploy
 curl -fsSLo compose.yaml "$base/compose.yaml"
 curl -fsSLo .env "$base/.env.example"
 chmod 600 .env
