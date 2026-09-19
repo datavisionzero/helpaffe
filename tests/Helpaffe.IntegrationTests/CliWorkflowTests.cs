@@ -318,6 +318,12 @@ public sealed class CliWorkflowTests : IAsyncLifetime
         };
         start.ArgumentList.Add("run");
         start.ArgumentList.Add("--no-build");
+        start.ArgumentList.Add("--configuration");
+#if DEBUG
+        start.ArgumentList.Add("Debug");
+#else
+        start.ArgumentList.Add("Release");
+#endif
         start.ArgumentList.Add("--project");
         start.ArgumentList.Add(Path.Combine(root, "src", "Helpaffe.Api"));
         start.ArgumentList.Add("--urls");
