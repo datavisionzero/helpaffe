@@ -2,6 +2,38 @@
 
 Helpdesk made easy and agentic for self-hosters.
 
+## First release
+
+Version `0.1.0` is the first self-hosted release. The application image is
+published for `linux/amd64` and `linux/arm64` as
+`ghcr.io/datavisionzero/helpaffe:0.1.0`; matching `helpaffe` CLI archives are
+attached to the [GitHub release](https://github.com/datavisionzero/helpaffe/releases).
+This is a `0.x` release: check the notes and back up data before upgrading.
+
+An installation needs only the published Compose file and an environment file,
+not this source checkout:
+
+```sh
+mkdir helpaffe && cd helpaffe
+base=https://raw.githubusercontent.com/datavisionzero/helpaffe/v0.1.0/deploy
+curl -fsSLo compose.yaml "$base/compose.yaml"
+curl -fsSLo .env "$base/.env.example"
+chmod 600 .env
+# Fill in the four required values in .env, then:
+docker compose up -d --wait
+```
+
+The application listens on `127.0.0.1:5066` by default. Use a TLS reverse
+proxy for remote access. The [installation guide](docs/install.md) covers
+configuration, first login, the CLI, backups, and upgrades.
+
+The later-roadmap capabilities for grouping tickets about one problem and
+accepting customer replies by email are not part of this release. Products
+integrate from their own authenticated backends; the included product example
+uses placeholder authentication and is not a production login system.
+
+## Development
+
 The product direction is described in [`VISION.md`](VISION.md). The initial
 technical foundation is documented in [`docs/codebase.md`](docs/codebase.md),
 with the [domain language](CONTEXT.md), [HTTP](docs/api.md), and

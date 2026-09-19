@@ -52,10 +52,16 @@ dotnet ef migrations add Name \
   --output-dir Persistence/Migrations
 ```
 
-## Full Compose stack
+## Published Compose stack
 
-Create the local environment file, replace its example password, and start the
-application and database:
+For a self-hosted installation using the released multi-architecture image,
+follow [`install.md`](install.md). Its `deploy/compose.yaml` downloads the
+application from GHCR and works without a source checkout.
+
+## Full source-built Compose stack
+
+For development from this checkout, create the local environment file, fill in
+all four required values, and build the application and database locally:
 
 ```sh
 cp deploy/.env.example deploy/.env

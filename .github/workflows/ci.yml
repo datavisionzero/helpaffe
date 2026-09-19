@@ -64,4 +64,11 @@ jobs:
     needs: [dotnet, web, cli]
     steps:
       - uses: actions/checkout@v7
+      - name: Validate published Compose definition
+        env:
+          POSTGRES_PASSWORD: ci-placeholder-password
+          HELPAFFE_BOOTSTRAP_EMAIL: admin@example.test
+          HELPAFFE_BOOTSTRAP_PASSWORD: ci-placeholder-admin-password
+          HELPAFFE_SECRETS_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: docker compose --env-file deploy/.env.example -f deploy/compose.yaml config --quiet
       - run: docker build -f deploy/Dockerfile -t helpaffe:test .

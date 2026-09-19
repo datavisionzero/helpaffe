@@ -22,11 +22,17 @@ RUN dotnet publish src/Helpaffe.Api/Helpaffe.Api.csproj -c Release -o /app -p:Ve
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
+ARG VERSION=0.0.0-dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.source="https://github.com/datavisionzero/helpaffe" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION"
 RUN apk add --no-cache krb5-libs
 COPY --from=build /app ./
 COPY --from=web /web/dist ./wwwroot
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
-RUN chown -R $APP_UID:$APP_UID /app
+RUN mkdir -p /var/lib/helpaffe/attachments \
+    && chown -R $APP_UID:$APP_UID /app /var/lib/helpaffe/attachments
 USER $APP_UID
 ENTRYPOINT ["./helpaffe"]

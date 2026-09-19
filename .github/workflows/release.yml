@@ -1,0 +1,244 @@
+name: Release
+
+# One tag names the server image, CLI binaries, and GitHub release. Re-running
+# with an existing tag is supported without moving or recreating that tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/datavisionzero/helpaffe
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.read.outputs.tag }}
+      version: ${{ steps.read.outputs.version }}
+      stable: ${{ steps.read.outputs.stable }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - id: read
+        name: Check the tag and trunk
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Expected a tag like v0.1.0 or v0.1.0-rc.1"
+            exit 1
+          fi
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::Release tags must name a commit on main"
+            exit 1
+          }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG" == *-* ]]; then
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify-dotnet:
+    name: Verify .NET
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet test Helpaffe.slnx -c Release
+
+  verify-web:
+    name: Verify web
+    needs: version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  verify-cli:
+    name: Verify CLI
+    needs: version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/cli
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/cli/go.mod
+          cache-dependency-path: src/cli/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+
+  image:
+    name: Image
+    needs: [version, verify-dotnet, verify-web, verify-cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: tags
+        name: Image tags
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          STABLE: ${{ needs.version.outputs.stable }}
+        run: |
+          set -euo pipefail
+          {
+            echo "value<<TAGS"
+            echo "$IMAGE:$VERSION"
+            if [[ "$STABLE" == true ]]; then
+              echo "$IMAGE:latest"
+            fi
+            echo "TAGS"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build and publish both architectures
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.value }}
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+            REVISION=${{ github.sha }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,mode=max,scope=release
+      - name: Check the published image
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: docker buildx imagetools inspect "$IMAGE:$VERSION"
+
+  cli:
+    name: CLI binaries
+    needs: [version, verify-cli]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/cli
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/cli/go.mod
+          cache-dependency-path: src/cli/go.sum
+      - name: Build and checksum
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${platform%/*}"
+            arch="${platform#*/}"
+            directory="dist/$os-$arch"
+            mkdir -p "$directory"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
+              -trimpath -ldflags="-s -w -X main.version=$VERSION" \
+              -o "$directory/helpaffe" ./cmd/helpaffe
+            cp ../../LICENSE "$directory/LICENSE"
+            if [[ "$platform" == linux/amd64 ]]; then
+              test "$("$directory/helpaffe" version)" = "helpaffe $VERSION"
+            fi
+            tar -czf "dist/helpaffe_${VERSION}_${os}_${arch}.tar.gz" \
+              -C "$directory" helpaffe LICENSE
+          done
+          cd dist
+          sha256sum helpaffe_*.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-release
+          path: |
+            src/cli/dist/*.tar.gz
+            src/cli/dist/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: [version, image, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-release
+          path: dist
+      - name: Publish the entry and CLI assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          STABLE: ${{ needs.version.outputs.stable }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            exit 0
+          fi
+          options=(--verify-tag --title "helpaffe $VERSION")
+          if [[ "$STABLE" != true ]]; then options+=(--prerelease); fi
+          if [[ -f "docs/releases/$TAG.md" ]]; then
+            options+=(--notes-file "docs/releases/$TAG.md")
+          else
+            options+=(--generate-notes)
+          fi
+          gh release create "$TAG" dist/* "${options[@]}"

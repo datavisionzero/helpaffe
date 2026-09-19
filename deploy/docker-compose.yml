@@ -14,7 +14,7 @@ services:
       Secrets__EncryptionKey: ${HELPAFFE_SECRETS_ENCRYPTION_KEY:?set HELPAFFE_SECRETS_ENCRYPTION_KEY in deploy/.env}
       Attachments__RootPath: /var/lib/helpaffe/attachments
     ports:
-      - "${HELPAFFE_HTTP_PORT:-5066}:8080"
+      - "${HELPAFFE_BIND_ADDRESS:-127.0.0.1}:${HELPAFFE_HTTP_PORT:-5066}:8080"
     volumes:
       - helpaffe-attachments:/var/lib/helpaffe/attachments
     depends_on:

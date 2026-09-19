@@ -1,0 +1,50 @@
+# Published-image installation. Download this file and .env.example from the
+# same release tag; no source checkout or local build is needed.
+# Keep .env private, then run: docker compose up -d --wait
+name: helpaffe
+
+services:
+  helpaffe:
+    image: ghcr.io/datavisionzero/helpaffe:${HELPAFFE_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Database: Host=db;Port=5432;Database=helpaffe;Username=helpaffe;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      Bootstrap__Name: ${HELPAFFE_BOOTSTRAP_NAME:-Administrator}
+      Bootstrap__Email: ${HELPAFFE_BOOTSTRAP_EMAIL:?Set HELPAFFE_BOOTSTRAP_EMAIL in .env}
+      Bootstrap__Password: ${HELPAFFE_BOOTSTRAP_PASSWORD:?Set HELPAFFE_BOOTSTRAP_PASSWORD in .env}
+      Secrets__EncryptionKey: ${HELPAFFE_SECRETS_ENCRYPTION_KEY:?Set HELPAFFE_SECRETS_ENCRYPTION_KEY in .env}
+      Attachments__RootPath: /var/lib/helpaffe/attachments
+    ports:
+      - "${HELPAFFE_BIND_ADDRESS:-127.0.0.1}:${HELPAFFE_HTTP_PORT:-5066}:8080"
+    volumes:
+      - helpaffe-attachments:/var/lib/helpaffe/attachments
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: helpaffe
+      POSTGRES_USER: helpaffe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - helpaffe-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helpaffe -d helpaffe"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  helpaffe-db:
+  helpaffe-attachments:
