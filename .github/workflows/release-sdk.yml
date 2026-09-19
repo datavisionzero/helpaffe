@@ -1,0 +1,100 @@
+name: Release SDK
+
+on:
+  push:
+    tags: ["sdk-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing SDK release tag, for example sdk-v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-sdk
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.read.outputs.tag }}
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - id: read
+        name: Check tag, trunk, and package version
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^sdk-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Expected an SDK tag such as sdk-v0.1.0"
+            exit 1
+          fi
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::SDK release tags must name a commit on main"
+            exit 1
+          }
+          version="${TAG#sdk-v}"
+          stamped="$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Helpaffe.Sdk/Helpaffe.Sdk.csproj)"
+          if [[ "$version" != "$stamped" ]]; then
+            echo "::error::Tag version $version differs from SDK package version $stamped"
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Verify and publish
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet test Helpaffe.slnx -c Release
+      - name: Verify package from a clean consumer
+        run: bash scripts/sdk-package-smoke.sh
+      - name: Pack
+        run: >
+          dotnet pack src/Helpaffe.Sdk/Helpaffe.Sdk.csproj
+          -c Release --no-build
+          -o "${{ runner.temp }}/nupkg"
+      - name: Obtain short-lived NuGet key
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Publish to nuget.org
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          dotnet nuget push "${{ runner.temp }}/nupkg/"*.nupkg \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_API_KEY" \
+            --skip-duplicate
+      - name: Retain package artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Helpaffe.Sdk-${{ needs.version.outputs.version }}
+          path: ${{ runner.temp }}/nupkg/*.nupkg
+          if-no-files-found: warn
+          retention-days: 14

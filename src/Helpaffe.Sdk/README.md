@@ -4,6 +4,12 @@ Server-side .NET client for a product's helpaffe integration. Keep the `hfp_`
 product key in backend configuration; never construct this client in browser or
 other untrusted code.
 
+Install the package in a .NET 10 backend:
+
+```sh
+dotnet add package Helpaffe.Sdk --version 0.1.0
+```
+
 ```csharp
 var client = new HelpaffeProductClient(
     httpClient,

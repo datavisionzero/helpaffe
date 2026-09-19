@@ -22,7 +22,9 @@ jobs:
       - run: dotnet restore Helpaffe.slnx
       - run: dotnet build Helpaffe.slnx -c Release --no-restore
       - run: dotnet test tests/Helpaffe.UnitTests -c Release --no-build
+      - run: dotnet test tests/Helpaffe.Sdk.Tests -c Release --no-build
       - run: dotnet test tests/Helpaffe.IntegrationTests -c Release --no-build
+      - run: bash scripts/sdk-package-smoke.sh
 
   web:
     name: Web

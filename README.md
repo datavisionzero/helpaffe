@@ -42,7 +42,8 @@ with the [domain language](CONTEXT.md), [HTTP](docs/api.md), and
 [CLI](docs/cli.md) conventions beside it.
 
 Product backends can integrate through the server-side
-[`Helpaffe.Sdk`](src/Helpaffe.Sdk/README.md) or the documented
+[`Helpaffe.Sdk`](src/Helpaffe.Sdk/README.md) (available as a
+[NuGet package](https://www.nuget.org/packages/Helpaffe.Sdk)) or the documented
 [Product API HTTP calls](docs/product-integration.md). A runnable
 [ASP.NET Core example](examples/Helpaffe.ProductExample/README.md) keeps the
 product key behind its own authenticated backend.

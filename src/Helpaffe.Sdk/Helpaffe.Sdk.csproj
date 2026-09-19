@@ -2,7 +2,13 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>Helpaffe.Sdk</PackageId>
+    <Version>0.1.0</Version>
     <Description>Server-side .NET client for the helpaffe Product API.</Description>
+    <Authors>helpaffe contributors</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/datavisionzero/helpaffe</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>helpaffe;support;helpdesk;tickets</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
