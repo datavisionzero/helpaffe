@@ -223,7 +223,7 @@ it("snoozes and clears a ticket with version and idempotency protection", async 
   });
   render(<SupportWorkspace user={user} projects={[project]} />);
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
-  fireEvent.change(await screen.findByLabelText("Return to queue"), { target: { value: "2026-09-20T12:00" } });
+  fireEvent.change(await screen.findByLabelText("Return to queue"), { target: { value: new Date(Date.now() + 86_400_000).toISOString().slice(0, 16) } });
   fireEvent.click(screen.getByRole("button", { name: "Snooze ticket" }));
 
   await waitFor(() => expect(fetch).toHaveBeenCalledWith(
