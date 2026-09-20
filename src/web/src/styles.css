@@ -211,7 +211,7 @@ legend { padding: 0 0.7rem 0 0; color: var(--brand); font-size: 0.78rem; text-tr
 .delete-confirm span { color: var(--danger); }
 
 .support-workspace { display: grid; grid-template-columns: minmax(20rem, 26rem) minmax(0, 1fr); height: calc(100vh - 3.25rem); min-height: 0; }
-.queue-sidebar { overflow-y: auto; border-right: 1px solid var(--border); background: var(--surface); }
+.queue-sidebar { overflow-y: auto; border-right: 1px solid var(--border); background: var(--surface); scroll-margin-top: 3.25rem; }
 .queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); padding: 0.9rem 1rem; }
 .queue-heading h1 { margin: 0.2rem 0 0; font-size: 1.1rem; letter-spacing: -0.02em; }
 .queue-heading p { margin: 0; }
@@ -244,40 +244,44 @@ legend { padding: 0 0.7rem 0 0; color: var(--brand); font-size: 0.78rem; text-tr
 .queue-loading { margin: 1rem; color: var(--muted); font-size: 0.82rem; }
 .load-more { width: calc(100% - 2rem); margin: 0.7rem 1rem 1rem; }
 
-.ticket-pane { min-width: 0; overflow-y: auto; padding: clamp(1.5rem, 3.5vw, 3.5rem); background: radial-gradient(circle at 88% 8%, var(--brand-glow), transparent 28rem); }
+.ticket-pane { min-width: 0; overflow-y: auto; padding: 0 1.25rem 3rem; background: var(--background); container-type: inline-size; scroll-margin-top: 3.25rem; }
 .ticket-placeholder { display: grid; min-height: 65vh; place-content: center; text-align: center; }
-.ticket-placeholder h2 { margin: 0.4rem 0; font-size: 2.4rem; }
+.ticket-placeholder h2 { margin: 0.4rem 0; font-size: 1.4rem; }
 .ticket-placeholder p:last-child { max-width: 28rem; color: var(--muted); }
-.ticket-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; }
-.ticket-header h2 { max-width: 55rem; margin: 0.7rem 0; font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1.05; letter-spacing: -0.045em; }
+.ticket-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin: 0 -1.25rem; border-bottom: 1px solid var(--border); padding: 1rem 1.25rem; background: var(--surface); }
+.ticket-header h2 { max-width: 55rem; margin: 0.4rem 0; font-size: clamp(1.15rem, 2vw, 1.55rem); line-height: 1.25; letter-spacing: -0.025em; }
+.ticket-header h2:focus { outline: none; }
 .ticket-header p { margin: 0; color: var(--muted); }
 .ticket-header a, .requester-card a { color: var(--brand); }
-.ticket-kicker { justify-content: flex-start; color: var(--brand); font-size: 0.75rem; text-transform: uppercase; }
-.ticket-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); gap: clamp(1.5rem, 3vw, 3rem); margin-top: 2rem; }
-.customer-activity, .conflict { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; border: 1px solid var(--warning-border); padding: 0.9rem 1rem; background: var(--warning-soft); }
+.ticket-kicker { justify-content: flex-start; color: var(--brand); font-size: 0.68rem; text-transform: uppercase; }
+.ticket-header-actions { display: flex; flex: 0 0 auto; gap: 0.4rem; }
+.back-to-queue { display: none; }
+.ticket-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(15rem, 19rem); gap: 1.25rem; margin-top: 1.25rem; }
+.customer-activity, .conflict { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; border: 1px solid var(--warning-border); border-radius: var(--radius); padding: 0.75rem 0.9rem; background: var(--warning-soft); }
 .customer-activity { justify-content: flex-start; }
 .customer-activity strong, .conflict strong { color: var(--warning); }
 .customer-activity span, .conflict span { color: var(--muted); }
 .conflict > div { display: grid; gap: 0.25rem; }
-.conversation { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
-.conversation-entry { border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.15rem 1.25rem; background: var(--surface); }
-.conversation-entry.customer_message { border-left: 3px solid var(--brand); }
-.conversation-entry.public_reply { margin-left: clamp(0rem, 5vw, 3.5rem); border-left: 3px solid var(--brand); background: var(--brand-soft); }
-.conversation-entry.internal_note { margin-inline: clamp(0rem, 3vw, 1.8rem); border-color: var(--warning-border); background: var(--note-soft); }
-.conversation-entry.system_event { border: 0; border-radius: 0; padding: 0.45rem 0.75rem; color: var(--subtle); background: transparent; }
+.conversation { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.conversation-entry { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; background: var(--surface); }
+.conversation-entry.customer_message { border-left: 3px solid var(--border-strong); }
+.conversation-entry.public_reply { margin-left: clamp(0rem, 2vw, 1.25rem); border-left: 3px solid var(--brand); background: var(--brand-soft); }
+.conversation-entry.internal_note { margin-inline: clamp(0rem, 1vw, 0.75rem); border-color: var(--warning-border); border-left: 3px solid var(--note); background: var(--note-soft); }
+.conversation-entry.system_event { border: 0; border-left: 2px solid var(--border-strong); border-radius: 0; padding: 0.35rem 0.75rem; color: var(--subtle); background: transparent; }
 .conversation-entry p { margin: 0.8rem 0 0; white-space: pre-wrap; line-height: 1.58; }
 .conversation-entry.system_event p { margin: 0; font-size: 0.82rem; }
 .entry-heading { color: var(--subtle); font-size: 0.7rem; }
-.entry-kind { color: var(--brand); letter-spacing: 0.05em; text-transform: uppercase; }
+.entry-kind { color: var(--brand); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.customer_message .entry-kind, .system_event .entry-kind { color: var(--muted); }
 .internal_note .entry-kind { color: var(--note); }
 .entry-actor { display: block; margin-top: 0.8rem; color: var(--subtle); font-size: 0.75rem; }
 .entry-attachments, .selected-attachments { display: grid; gap: 0.55rem; margin: 0.9rem 0 0; padding: 0; list-style: none; }
-.entry-attachments li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.65rem 0.75rem; background: var(--background); }
+.entry-attachments li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); padding: 0.55rem 0.65rem; background: var(--surface); }
 .entry-attachments a { display: grid; min-width: 0; gap: 0.18rem; color: var(--foreground); text-decoration: none; }
 .entry-attachments a:hover .attachment-name { text-decoration: underline; }
 .attachment-name { overflow-wrap: anywhere; font-weight: 650; }
 .attachment-meta { overflow-wrap: anywhere; color: var(--subtle); font-family: "IBM Plex Mono", monospace; font-size: 0.68rem; }
-.attachment-visibility { flex: 0 0 auto; border-radius: 999px; padding: 0.22rem 0.48rem; font-family: "IBM Plex Mono", monospace; font-size: 0.62rem; letter-spacing: 0.03em; text-transform: uppercase; }
+.attachment-visibility { flex: 0 0 auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 0.22rem 0.48rem; font-family: "IBM Plex Mono", monospace; font-size: 0.62rem; letter-spacing: 0.03em; text-transform: uppercase; }
 .attachment-visibility.public { color: var(--success); background: var(--success-soft); }
 .attachment-visibility.internal { color: var(--note); background: var(--note-soft); }
 .composer { margin-top: 1.5rem; border: 1px solid var(--border-strong); border-radius: 0.5rem; padding: 1rem; background: var(--background); }
@@ -344,7 +348,11 @@ legend { padding: 0 0.7rem 0 0; color: var(--brand); font-size: 0.78rem; text-tr
   .solutions-sidebar { overflow: visible; border-right: 0; border-bottom: 1px solid var(--border); }
   .queue-sidebar, .ticket-pane { overflow: visible; }
   .solution-pane { overflow: visible; padding: 1.25rem 1rem 3rem; }
-  .ticket-pane { padding: 1.25rem 1rem 3rem; }
+  .ticket-pane { padding: 0 1rem 3rem; }
+  .ticket-pane.is-empty { display: none; }
+  .ticket-header { margin: 0 -1rem; }
+  .ticket-header-actions { width: 100%; justify-content: space-between; }
+  .back-to-queue { display: inline-flex; }
   .ticket-header, .customer-activity, .conflict, .composer-actions { align-items: stretch; flex-direction: column; }
   .solution-pane-heading, .delete-confirm { align-items: stretch; flex-direction: column; }
   .solution-actions { flex-wrap: wrap; }
@@ -354,6 +362,15 @@ legend { padding: 0 0.7rem 0 0; color: var(--brand); font-size: 0.78rem; text-tr
   .conversation-entry.public_reply, .conversation-entry.internal_note { margin-inline: 0; }
   .entry-attachments li, .selected-attachments li { align-items: stretch; flex-direction: column; }
   .attachment-visibility, .selected-attachments button { align-self: flex-start; }
+}
+@container (max-width: 50rem) {
+  .ticket-layout { grid-template-columns: 1fr; }
+  .ticket-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .instructions, .ticket-context { grid-column: 1 / -1; }
+}
+@container (max-width: 30rem) {
+  .ticket-sidebar { grid-template-columns: 1fr; }
+  .instructions, .ticket-context { grid-column: auto; }
 }
 @media (max-width: 48rem) {
   .app-sidebar { position: fixed; z-index: 40; top: 3.25rem; left: 0; display: none; width: min(18rem, 85vw); height: calc(100dvh - 3.25rem); box-shadow: 0.5rem 0 2rem var(--overlay); }

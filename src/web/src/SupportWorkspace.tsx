@@ -108,6 +108,8 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   const [attachmentErrors, setAttachmentErrors] = useState<Record<ComposerKind, string>>({ reply: "", note: "" });
   const [submitting, setSubmitting] = useState<ComposerKind | null>(null);
   const [composerStatus, setComposerStatus] = useState("");
+  const queueSidebar = useRef<HTMLElement>(null);
+  const ticketPane = useRef<HTMLElement>(null);
   const replyFileInput = useRef<HTMLInputElement>(null);
   const noteFileInput = useRef<HTMLInputElement>(null);
   const [snoozeUntil, setSnoozeUntil] = useState("");
@@ -162,6 +164,12 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       setError("");
       const selected = await call<TicketDetail>(`/tickets/${encodeURIComponent(number)}`);
       setDetail(selected);
+      if (!preserveDrafts && window.matchMedia?.("(max-width: 40rem)").matches) {
+        requestAnimationFrame(() => {
+          ticketPane.current?.scrollIntoView?.({ block: "start" });
+          ticketPane.current?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+        });
+      }
       setSnoozeUntil(toLocalDateTime(selected.summary.snoozed_until));
       setRequesterTickets([]);
       setRequesterTicketsCursor(null);
@@ -409,9 +417,9 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   );
 
   return <div className="support-workspace">
-    <aside className="queue-sidebar">
+    <aside ref={queueSidebar} className="queue-sidebar">
       <div className="queue-heading">
-        <div><p className="eyebrow">Shared support</p><h1>Work queue</h1></div>
+        <div><p className="eyebrow">Shared support</p><h1 tabIndex={-1}>Work queue</h1></div>
         <button onClick={() => void acquireNext()}>Next ticket</button>
       </div>
       <div className="queue-tabs" role="tablist" aria-label="Ticket status">
@@ -441,15 +449,15 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       </div>
       {nextCursor && <button className="secondary load-more" onClick={() => void loadTickets(nextCursor)}>Load more</button>}
     </aside>
-    <section className="ticket-pane" aria-label="Ticket detail">
+    <section ref={ticketPane} className={`ticket-pane${detail ? "" : " is-empty"}`} aria-label="Ticket detail">
       {!detail ? <div className="ticket-placeholder"><p className="eyebrow">Ticket context</p><h2>Select a ticket</h2><p>Open a ticket from the shared queue, or take the next eligible request.</p></div> : <>
         <header className="ticket-header">
           <div>
             <div className="ticket-kicker"><span>{detail.summary.project.key}</span><span>{detail.summary.number}</span><span className={`priority ${detail.summary.priority}`}>{detail.summary.priority}</span></div>
-            <h2>{detail.summary.subject}</h2>
+            <h2 tabIndex={-1}>{detail.summary.subject}</h2>
             <p>{detail.requester.name} · <a href={`mailto:${detail.requester.email}`}>{detail.requester.email}</a></p>
           </div>
-          <button className="secondary compact" onClick={() => void openTicket(detail.summary.number, true)}>Refresh</button>
+          <div className="ticket-header-actions"><button type="button" className="secondary compact back-to-queue" onClick={() => { queueSidebar.current?.scrollIntoView?.({ block: "start" }); queueSidebar.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true }); }}>Back to queue</button><button className="secondary compact" onClick={() => void openTicket(detail.summary.number, true)}>Refresh</button></div>
         </header>
         {hasNewCustomerActivity && <div className="customer-activity" role="status"><strong>New customer activity</strong><span>The latest message came from the requester. Review it before replying.</span></div>}
         {detail.summary.snoozed_until && <div className="notice" role="status">Snoozed until {formatDate(detail.summary.snoozed_until)}. Direct work remains available.</div>}
