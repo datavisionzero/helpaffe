@@ -97,6 +97,9 @@ it("shows the shared queues, filters, full context, and distinct conversation ki
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
   expect(await screen.findByRole("heading", { name: "Settings page is blank" })).toBeInTheDocument();
   expect(screen.getByText("Selected")).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole("tab", { name: "Public reply" }), { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: "Internal note" })).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(screen.getByRole("tab", { name: "Internal note" }), { key: "ArrowLeft" });
   expect(screen.getByText("Customer message")).toBeInTheDocument();
   expect(screen.getAllByText("Public reply")).toHaveLength(2);
   expect(screen.getAllByText("Internal note")).toHaveLength(2);

@@ -30,6 +30,7 @@
   --success: #14643c;
   --success-soft: #e9f4eb;
   --note: #765100;
+  --note-hover: #634300;
   --note-soft: #fff7e4;
   --overlay: rgb(29 31 28 / 14%);
   --radius: 0.375rem;
@@ -67,6 +68,7 @@
   --success: #87d2a3;
   --success-soft: #203529;
   --note: #e8c878;
+  --note-hover: #f2d991;
   --note-soft: #332d1e;
   --overlay: rgb(0 0 0 / 32%);
 }
@@ -267,7 +269,7 @@ legend { padding: 0 0.7rem 0 0; color: var(--brand); font-size: 0.78rem; text-tr
 .conversation-entry.customer_message { border-left: 3px solid var(--border-strong); }
 .conversation-entry.public_reply { margin-left: clamp(0rem, 2vw, 1.25rem); border-left: 3px solid var(--brand); background: var(--brand-soft); }
 .conversation-entry.internal_note { margin-inline: clamp(0rem, 1vw, 0.75rem); border-color: var(--warning-border); border-left: 3px solid var(--note); background: var(--note-soft); }
-.conversation-entry.system_event { border: 0; border-left: 2px solid var(--border-strong); border-radius: 0; padding: 0.35rem 0.75rem; color: var(--subtle); background: transparent; }
+.conversation-entry.system_event { border: 0; border-left: 2px solid var(--border-strong); border-radius: 0; padding: 0.35rem 0.75rem; color: var(--subtle); background: var(--background); }
 .conversation-entry p { margin: 0.8rem 0 0; white-space: pre-wrap; line-height: 1.58; }
 .conversation-entry.system_event p { margin: 0; font-size: 0.82rem; }
 .entry-heading { color: var(--subtle); font-size: 0.7rem; }
@@ -284,34 +286,43 @@ legend { padding: 0 0.7rem 0 0; color: var(--brand); font-size: 0.78rem; text-tr
 .attachment-visibility { flex: 0 0 auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 0.22rem 0.48rem; font-family: "IBM Plex Mono", monospace; font-size: 0.62rem; letter-spacing: 0.03em; text-transform: uppercase; }
 .attachment-visibility.public { color: var(--success); background: var(--success-soft); }
 .attachment-visibility.internal { color: var(--note); background: var(--note-soft); }
-.composer { margin-top: 1.5rem; border: 1px solid var(--border-strong); border-radius: 0.5rem; padding: 1rem; background: var(--background); }
-.composer-tabs { display: flex; gap: 0.3rem; margin-bottom: 1rem; }
-.composer form { display: grid; gap: 0.9rem; }
-.attachment-picker { margin: 0; border: 1px dashed var(--border-strong); border-radius: 0.45rem; padding: 0.9rem; }
+.composer { margin-top: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; background: var(--surface); }
+.composer.reply { border-top: 3px solid var(--brand); }
+.composer.note { border-top: 3px solid var(--note); background: var(--note-soft); }
+.composer-tabs { display: flex; gap: 0.3rem; margin-bottom: 0.9rem; border-bottom: 1px solid var(--border); padding-bottom: 0.65rem; }
+.composer.note .composer-tabs button.active { border-color: var(--warning-border); color: var(--note); background: var(--note-soft); }
+.composer form { display: grid; gap: 0.8rem; }
+.composer textarea { min-height: 8rem; }
+.attachment-picker { min-width: 0; margin: 0; border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 0.75rem; }
 .attachment-picker.internal { border-color: var(--warning-border); background: var(--note-soft); }
 .attachment-picker legend { color: var(--brand); }
 .attachment-picker.internal legend { color: var(--note); }
 .attachment-guidance { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
-.attachment-picker input[type="file"] { padding: 0.45rem; font-size: 0.8rem; }
+.attachment-picker input[type="file"] { min-width: 0; padding: 0.45rem; font-size: 0.8rem; }
 .attachment-error { margin: 0.7rem 0 0; color: var(--danger); font-size: 0.82rem; }
 .selected-attachments li { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; border-top: 1px solid var(--border); padding-top: 0.55rem; }
 .selected-attachments li > span { display: grid; min-width: 0; gap: 0.15rem; }
 .selected-attachments strong { overflow-wrap: anywhere; color: var(--foreground); font-size: 0.84rem; }
 .selected-attachments small { color: var(--subtle); font-family: "IBM Plex Mono", monospace; font-size: 0.65rem; }
 .composer-actions { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
-.composer-actions label { min-width: 13rem; }
+.composer-actions label { min-width: min(13rem, 100%); }
+.composer-actions button { flex: 0 0 auto; }
 .composer-status { margin: 0.8rem 0 0; color: var(--brand); font-size: 0.8rem; }
 .note-button { color: var(--brand-foreground); background: var(--note); }
-.ticket-sidebar { display: grid; align-content: start; gap: 1rem; }
-.ticket-fields, .snooze-card, .development-references, .requester-card, .related-tickets, .ticket-context, .notification-card, .instructions { display: grid; gap: 0.9rem; border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.1rem; background: var(--surface); }
+.note-button:hover { background: var(--note-hover); }
+.ticket-sidebar { display: grid; align-content: start; align-items: start; gap: 0.75rem; }
+.ticket-fields, .snooze-card, .development-references, .requester-card, .related-tickets, .ticket-context, .notification-card, .instructions { display: grid; min-width: 0; gap: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem; background: var(--surface); }
+.ticket-sidebar .eyebrow { margin: 0; }
+.ticket-fields button, .snooze-card button, .reference-form button { justify-self: start; }
 .ticket-fields p, .snooze-card p, .development-references p, .requester-card p { margin: 0; }
 .development-references ol { display: grid; gap: 0.65rem; margin: 0; padding: 0; list-style: none; }
 .development-references li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.6rem; }
-.development-references li a { display: grid; min-width: 0; color: var(--foreground); text-decoration: none; }
+.development-references li a { display: grid; min-width: 0; overflow-wrap: anywhere; color: var(--foreground); text-decoration: none; }
 .development-references li a strong { overflow: hidden; text-overflow: ellipsis; }
 .development-references li a span { color: var(--subtle); font-size: 0.72rem; text-transform: uppercase; }
 .reference-form { display: grid; gap: 0.7rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
 .requester-card { gap: 0.35rem; }
+.requester-card a { overflow-wrap: anywhere; }
 .requester-card span { overflow-wrap: anywhere; color: var(--subtle); font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; }
 .related-tickets > p { margin: 0; }
 .related-tickets ol { display: grid; gap: 0.55rem; margin: 0; padding: 0; list-style: none; }
@@ -319,7 +330,7 @@ legend { padding: 0 0.7rem 0 0; color: var(--brand); font-size: 0.78rem; text-tr
 .related-tickets li button > span:first-child { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--brand); font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; text-transform: uppercase; }
 .related-tickets li button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-context summary { cursor: pointer; font-weight: 600; }
-.ticket-context pre { overflow-x: auto; margin: 0; white-space: pre-wrap; color: var(--brand); font-family: "IBM Plex Mono", monospace; font-size: 0.72rem; line-height: 1.5; }
+.ticket-context pre { overflow-x: auto; overflow-wrap: anywhere; margin: 0; white-space: pre-wrap; color: var(--brand); font-family: "IBM Plex Mono", monospace; font-size: 0.72rem; line-height: 1.5; }
 .notification-card > p { margin: 0; }
 .notification-card ol { display: grid; gap: 0.7rem; margin: 0; padding: 0; list-style: none; }
 .notification-card li { display: grid; gap: 0.4rem; border-top: 1px solid var(--border); padding-top: 0.7rem; }

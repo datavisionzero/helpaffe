@@ -409,6 +409,15 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
     event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
   }
 
+  function moveComposerTab(event: ReactKeyboardEvent<HTMLButtonElement>, next: ComposerKind) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const target = event.key === "Home" ? "reply" : event.key === "End" ? "note" : next;
+    setComposer(target);
+    setComposerStatus("");
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[target === "reply" ? 0 : 1]?.focus();
+  }
+
   const hasNewCustomerActivity = detail ? customerActivity(detail.summary) : false;
   const fieldsChanged = detail && fieldDraft && (
     fieldDraft.status !== detail.summary.status ||
@@ -485,10 +494,10 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
                 {entry.actor && <span className="entry-actor">{entry.actor.user_name}{entry.actor.agent_name ? ` via ${entry.actor.agent_name}` : ""}</span>}
               </li>)}
             </ol>
-            <div className="composer">
+            <div className={`composer ${composer}`}>
               <div className="composer-tabs" role="tablist" aria-label="Compose message">
-                <button type="button" role="tab" aria-selected={composer === "reply"} className={composer === "reply" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("reply"); setComposerStatus(""); }}>Public reply</button>
-                <button type="button" role="tab" aria-selected={composer === "note"} className={composer === "note" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("note"); setComposerStatus(""); }}>Internal note</button>
+                <button type="button" role="tab" aria-selected={composer === "reply"} tabIndex={composer === "reply" ? 0 : -1} className={composer === "reply" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("reply"); setComposerStatus(""); }} onKeyDown={event => moveComposerTab(event, "note")}>Public reply</button>
+                <button type="button" role="tab" aria-selected={composer === "note"} tabIndex={composer === "note" ? 0 : -1} className={composer === "note" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("note"); setComposerStatus(""); }} onKeyDown={event => moveComposerTab(event, "reply")}>Internal note</button>
               </div>
               {composer === "reply" ? <form onSubmit={sendReply} aria-busy={submitting === "reply"}>
                 <label>Reply to {detail.requester.name}<textarea aria-label="Public reply" value={reply} onChange={event => setReply(event.target.value)} rows={6} required /></label>
