@@ -96,6 +96,7 @@ it("shows the shared queues, filters, full context, and distinct conversation ki
 
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
   expect(await screen.findByRole("heading", { name: "Settings page is blank" })).toBeInTheDocument();
+  expect(screen.getByText("Selected")).toBeInTheDocument();
   expect(screen.getByText("Customer message")).toBeInTheDocument();
   expect(screen.getAllByText("Public reply")).toHaveLength(2);
   expect(screen.getAllByText("Internal note")).toHaveLength(2);
@@ -112,6 +113,16 @@ it("shows the shared queues, filters, full context, and distinct conversation ki
   fireEvent.click(screen.getByRole("button", { name: /HLP-41.*Earlier settings issue/s }));
   expect(await screen.findByRole("heading", { name: "Earlier settings issue" })).toBeInTheDocument();
   expect(screen.getAllByText("New customer activity")).toHaveLength(2);
+});
+
+it("moves between work queues with arrow keys", async () => {
+  stubSupportApi();
+  render(<SupportWorkspace user={user} projects={[project]} />);
+  const open = await screen.findByRole("tab", { name: "Open" });
+  open.focus();
+  fireEvent.keyDown(open, { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: "In progress" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "In progress" })).toHaveFocus();
 });
 
 it("combines full-text search with project and status filters", async () => {

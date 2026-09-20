@@ -1,4 +1,4 @@
-import { FormEvent, RefObject, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, RefObject, useEffect, useRef, useState } from "react";
 import { call, CurrentUser, message, Project, requestKey, RequestError } from "./api";
 
 type TicketStatus = "open" | "in_progress" | "waiting_for_customer" | "resolved";
@@ -391,6 +391,16 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
     setNotice("");
   }
 
+  function moveQueueTab(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    const next = event.key === "ArrowRight" ? (index + 1) % queues.length
+      : event.key === "ArrowLeft" ? (index - 1 + queues.length) % queues.length
+      : event.key === "Home" ? 0 : event.key === "End" ? queues.length - 1 : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    selectQueue(queues[next].value);
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+  }
+
   const hasNewCustomerActivity = detail ? customerActivity(detail.summary) : false;
   const fieldsChanged = detail && fieldDraft && (
     fieldDraft.status !== detail.summary.status ||
@@ -405,7 +415,7 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
         <button onClick={() => void acquireNext()}>Next ticket</button>
       </div>
       <div className="queue-tabs" role="tablist" aria-label="Ticket status">
-        {queues.map(item => <button key={item.value} role="tab" aria-selected={queue === item.value} className={queue === item.value ? "active" : ""} onClick={() => selectQueue(item.value)}>{item.label}</button>)}
+        {queues.map((item, index) => <button key={item.value} type="button" role="tab" aria-selected={queue === item.value} tabIndex={queue === item.value ? 0 : -1} className={queue === item.value ? "active" : ""} onClick={() => selectQueue(item.value)} onKeyDown={event => moveQueueTab(event, index)}>{item.label}</button>)}
       </div>
       <form className="queue-filters" onSubmit={event => { event.preventDefault(); setSearch(searchInput.trim()); }}>
         <label>Project<select value={projectId} onChange={event => { setProjectId(event.target.value); setAssigneeId(""); }}>
@@ -420,9 +430,10 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       {notice && <p className="notice" role="status">{notice}</p>}
       {error && <p className="error banner" role="alert">{error}</p>}
       <div className="ticket-list" aria-busy={loading}>
-        {!loading && tickets.length === 0 && <div className="queue-empty"><strong>No tickets here.</strong><span>Try another status or project.</span></div>}
-        {tickets.map(ticket => <button className={`ticket-row ${detail?.summary.number === ticket.number ? "selected" : ""}`} key={ticket.id} onClick={() => void openTicket(ticket.number)}>
-          <span className="ticket-row-top"><span className="ticket-number">{ticket.number}</span><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></span>
+        {loading && tickets.length === 0 && <p className="queue-loading" role="status">Loading tickets…</p>}
+        {!loading && !error && tickets.length === 0 && <div className="queue-empty"><strong>No tickets here.</strong><span>Try another status or project.</span></div>}
+        {tickets.map(ticket => <button type="button" className={`ticket-row ${detail?.summary.number === ticket.number ? "selected" : ""}`} aria-current={detail?.summary.number === ticket.number ? "true" : undefined} key={ticket.id} onClick={() => void openTicket(ticket.number)}>
+          <span className="ticket-row-top"><span className="ticket-number">{ticket.number}</span><span className="ticket-row-flags">{detail?.summary.number === ticket.number && <span className="selected-label">Selected</span>}<span className={`priority ${ticket.priority}`}>{ticket.priority}</span></span></span>
           <strong>{ticket.subject}</strong>
           <span className="ticket-meta"><span>{ticket.project.key}</span><span>{ticket.assignee?.name ?? "Unassigned"}</span><time>{relativeTime(ticket.updated_at)}</time></span>
           {customerActivity(ticket) && <span className="activity-dot">New customer activity</span>}
