@@ -109,6 +109,8 @@ a { color: var(--brand); }
 .topbar-brand, .topbar-divider, .topbar-user { color: var(--subtle); font-weight: 400; }
 .topbar-user { overflow: hidden; margin-left: auto; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
 .menu-toggle, .mobile-backdrop { display: none; }
+.menu-glyph { display: grid; place-items: center; width: 1rem; height: 0.75rem; border-block: 2px solid currentColor; }
+.menu-glyph::after { width: 100%; border-top: 2px solid currentColor; content: ""; }
 .wordmark, .state, .eyebrow, .project-card span, .count, .status { font-family: "IBM Plex Mono", monospace; }
 .wordmark { display: inline-flex; align-items: center; gap: 0.55rem; color: var(--foreground); font-family: "IBM Plex Sans", sans-serif; font-size: 0.93rem; font-weight: 600; }
 .brand-mark { display: inline-block; width: 1rem; height: 1rem; border-radius: 0.2rem; background: var(--brand); }

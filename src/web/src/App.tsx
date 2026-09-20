@@ -146,7 +146,7 @@ export function App() {
     </aside>
     <div className="shell-main" inert={menuOpen}>
       <header className="topbar">
-        <button ref={menuButton} type="button" className="secondary menu-toggle" aria-label="Open navigation" aria-controls="app-navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}>☰</button>
+        <button ref={menuButton} type="button" className="secondary menu-toggle" aria-label="Open navigation" aria-controls="app-navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><span className="menu-glyph" aria-hidden="true" /></button>
         <div className="topbar-title">
           <span className="topbar-brand">helpaffe</span>
           <span aria-hidden="true" className="topbar-divider">/</span>
