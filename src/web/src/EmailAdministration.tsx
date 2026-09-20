@@ -151,22 +151,26 @@ export function EmailAdministration({ projects }: { projects: Project[] }) {
       {notice && <p className="notice" role="status">{notice}</p>}
       {settings && <form className="email-settings" key={settings.project_id} onSubmit={saveSettings}>
         <h3>Delivery and branding</h3>
-        <div className="form-grid">
+        <fieldset className="email-form-group"><legend>SMTP delivery</legend><div className="form-grid">
           <label>Language<select name="language" value="en" disabled><option value="en">English</option></select></label>
           <label>SMTP host<input name="smtpHost" required maxLength={255} defaultValue={settings.smtp.host} /></label>
           <label>SMTP port<input name="smtpPort" type="number" min={1} max={65535} required defaultValue={settings.smtp.port} /></label>
           <label className="check-row"><input name="smtpTls" type="checkbox" defaultChecked={settings.smtp.use_tls} />Use TLS</label>
           <label>SMTP username<input name="smtpUsername" maxLength={320} defaultValue={settings.smtp.username ?? ""} /></label>
           <label>SMTP password<input name="smtpPassword" type="password" autoComplete="new-password" placeholder={settings.smtp.password_configured ? "Configured — leave blank to keep" : "Set password"} /></label>
+        </div></fieldset>
+        <fieldset className="email-form-group"><legend>Sender and recipients</legend><div className="form-grid">
           <label>Sender name<input name="senderName" required maxLength={200} defaultValue={settings.sender.name} /></label>
           <label>Sender email<input name="senderEmail" type="email" required maxLength={320} defaultValue={settings.sender.email} /></label>
           <label className="span-two">Support recipients<textarea name="supportRecipients" required rows={3} defaultValue={settings.support_recipients.join("\n")} /></label>
+        </div></fieldset>
+        <fieldset className="email-form-group"><legend>Branding and ticket links</legend><div className="form-grid">
           <label>Brand name<input name="brandName" required maxLength={200} defaultValue={settings.branding.name} /></label>
           <label>Brand color<input name="brandColor" required pattern="#[0-9A-Fa-f]{6}" defaultValue={settings.branding.color} /></label>
           <label className="span-two">Logo URL<input name="brandLogoUrl" type="url" maxLength={2048} defaultValue={settings.branding.logo_url ?? ""} placeholder="https://cdn.example/logo.png" /></label>
           <label className="span-two">Customer ticket link<input name="customerLink" required maxLength={2048} defaultValue={settings.ticket_links.customer} placeholder="https://product.example/support/{{ticket_number}}" /></label>
           <label className="span-two">Backoffice ticket link<input name="backofficeLink" required maxLength={2048} defaultValue={settings.ticket_links.backoffice} placeholder="https://support.example/tickets/{{ticket_number}}" /></label>
-        </div>
+        </div></fieldset>
         <button type="submit">Save email settings</button>
       </form>}
       {template && <div className="template-admin">
@@ -181,7 +185,7 @@ export function EmailAdministration({ projects }: { projects: Project[] }) {
           <label>HTML body<textarea name="htmlBody" required rows={10} defaultValue={template.html_body} /></label>
           <div className="email-actions"><button type="submit">Save template</button><button type="button" className="secondary" onClick={() => void renderPreview()}>Preview</button></div>
         </form>
-        {preview && <div className="email-preview"><h4>{preview.subject}</h4><pre>{preview.text_body}</pre><iframe title="Email HTML preview" sandbox="" srcDoc={preview.html_body} /></div>}
+        {preview && <div className="email-preview" role="region" aria-label="Email preview"><h4>{preview.subject}</h4><p className="eyebrow">Text preview</p><pre>{preview.text_body}</pre><p className="eyebrow">HTML preview</p><iframe title="Email HTML preview" sandbox="" srcDoc={preview.html_body} /></div>}
         <div className="email-test"><label>Test recipient<input type="email" value={testRecipient} onChange={event => setTestRecipient(event.target.value)} placeholder="you@example.test" /></label><button type="button" disabled={!testRecipient} onClick={() => void sendTest()}>Send test email</button></div>
       </div>}
     </>}

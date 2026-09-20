@@ -1,4 +1,4 @@
-import { FormEvent, RefObject, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, RefObject, useEffect, useRef, useState } from "react";
 import { call, CurrentUser, message, Project, requestKey, RequestError } from "./api";
 
 type TicketStatus = "open" | "in_progress" | "waiting_for_customer" | "resolved";
@@ -108,6 +108,8 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   const [attachmentErrors, setAttachmentErrors] = useState<Record<ComposerKind, string>>({ reply: "", note: "" });
   const [submitting, setSubmitting] = useState<ComposerKind | null>(null);
   const [composerStatus, setComposerStatus] = useState("");
+  const queueSidebar = useRef<HTMLElement>(null);
+  const ticketPane = useRef<HTMLElement>(null);
   const replyFileInput = useRef<HTMLInputElement>(null);
   const noteFileInput = useRef<HTMLInputElement>(null);
   const [snoozeUntil, setSnoozeUntil] = useState("");
@@ -162,6 +164,12 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       setError("");
       const selected = await call<TicketDetail>(`/tickets/${encodeURIComponent(number)}`);
       setDetail(selected);
+      if (!preserveDrafts && window.matchMedia?.("(max-width: 40rem)").matches) {
+        requestAnimationFrame(() => {
+          ticketPane.current?.scrollIntoView?.({ block: "start" });
+          ticketPane.current?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+        });
+      }
       setSnoozeUntil(toLocalDateTime(selected.summary.snoozed_until));
       setRequesterTickets([]);
       setRequesterTicketsCursor(null);
@@ -391,6 +399,25 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
     setNotice("");
   }
 
+  function moveQueueTab(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    const next = event.key === "ArrowRight" ? (index + 1) % queues.length
+      : event.key === "ArrowLeft" ? (index - 1 + queues.length) % queues.length
+      : event.key === "Home" ? 0 : event.key === "End" ? queues.length - 1 : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    selectQueue(queues[next].value);
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+  }
+
+  function moveComposerTab(event: ReactKeyboardEvent<HTMLButtonElement>, next: ComposerKind) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const target = event.key === "Home" ? "reply" : event.key === "End" ? "note" : next;
+    setComposer(target);
+    setComposerStatus("");
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[target === "reply" ? 0 : 1]?.focus();
+  }
+
   const hasNewCustomerActivity = detail ? customerActivity(detail.summary) : false;
   const fieldsChanged = detail && fieldDraft && (
     fieldDraft.status !== detail.summary.status ||
@@ -399,13 +426,13 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
   );
 
   return <div className="support-workspace">
-    <aside className="queue-sidebar">
+    <aside ref={queueSidebar} className="queue-sidebar">
       <div className="queue-heading">
-        <div><p className="eyebrow">Shared support</p><h1>Work queue</h1></div>
+        <div><p className="eyebrow">Shared support</p><h1 tabIndex={-1}>Work queue</h1></div>
         <button onClick={() => void acquireNext()}>Next ticket</button>
       </div>
       <div className="queue-tabs" role="tablist" aria-label="Ticket status">
-        {queues.map(item => <button key={item.value} role="tab" aria-selected={queue === item.value} className={queue === item.value ? "active" : ""} onClick={() => selectQueue(item.value)}>{item.label}</button>)}
+        {queues.map((item, index) => <button key={item.value} type="button" role="tab" aria-selected={queue === item.value} tabIndex={queue === item.value ? 0 : -1} className={queue === item.value ? "active" : ""} onClick={() => selectQueue(item.value)} onKeyDown={event => moveQueueTab(event, index)}>{item.label}</button>)}
       </div>
       <form className="queue-filters" onSubmit={event => { event.preventDefault(); setSearch(searchInput.trim()); }}>
         <label>Project<select value={projectId} onChange={event => { setProjectId(event.target.value); setAssigneeId(""); }}>
@@ -420,9 +447,10 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       {notice && <p className="notice" role="status">{notice}</p>}
       {error && <p className="error banner" role="alert">{error}</p>}
       <div className="ticket-list" aria-busy={loading}>
-        {!loading && tickets.length === 0 && <div className="queue-empty"><strong>No tickets here.</strong><span>Try another status or project.</span></div>}
-        {tickets.map(ticket => <button className={`ticket-row ${detail?.summary.number === ticket.number ? "selected" : ""}`} key={ticket.id} onClick={() => void openTicket(ticket.number)}>
-          <span className="ticket-row-top"><span className="ticket-number">{ticket.number}</span><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></span>
+        {loading && tickets.length === 0 && <p className="queue-loading" role="status">Loading tickets…</p>}
+        {!loading && !error && tickets.length === 0 && <div className="queue-empty"><strong>No tickets here.</strong><span>Try another status or project.</span></div>}
+        {tickets.map(ticket => <button type="button" className={`ticket-row ${detail?.summary.number === ticket.number ? "selected" : ""}`} aria-current={detail?.summary.number === ticket.number ? "true" : undefined} key={ticket.id} onClick={() => void openTicket(ticket.number)}>
+          <span className="ticket-row-top"><span className="ticket-number">{ticket.number}</span><span className="ticket-row-flags">{detail?.summary.number === ticket.number && <span className="selected-label">Selected</span>}<span className={`priority ${ticket.priority}`}>{ticket.priority}</span></span></span>
           <strong>{ticket.subject}</strong>
           <span className="ticket-meta"><span>{ticket.project.key}</span><span>{ticket.assignee?.name ?? "Unassigned"}</span><time>{relativeTime(ticket.updated_at)}</time></span>
           {customerActivity(ticket) && <span className="activity-dot">New customer activity</span>}
@@ -430,15 +458,15 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
       </div>
       {nextCursor && <button className="secondary load-more" onClick={() => void loadTickets(nextCursor)}>Load more</button>}
     </aside>
-    <section className="ticket-pane" aria-label="Ticket detail">
+    <section ref={ticketPane} className={`ticket-pane${detail ? "" : " is-empty"}`} aria-label="Ticket detail">
       {!detail ? <div className="ticket-placeholder"><p className="eyebrow">Ticket context</p><h2>Select a ticket</h2><p>Open a ticket from the shared queue, or take the next eligible request.</p></div> : <>
         <header className="ticket-header">
           <div>
             <div className="ticket-kicker"><span>{detail.summary.project.key}</span><span>{detail.summary.number}</span><span className={`priority ${detail.summary.priority}`}>{detail.summary.priority}</span></div>
-            <h2>{detail.summary.subject}</h2>
+            <h2 tabIndex={-1}>{detail.summary.subject}</h2>
             <p>{detail.requester.name} · <a href={`mailto:${detail.requester.email}`}>{detail.requester.email}</a></p>
           </div>
-          <button className="secondary compact" onClick={() => void openTicket(detail.summary.number, true)}>Refresh</button>
+          <div className="ticket-header-actions"><button type="button" className="secondary compact back-to-queue" onClick={() => { queueSidebar.current?.scrollIntoView?.({ block: "start" }); queueSidebar.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true }); }}>Back to queue</button><button className="secondary compact" onClick={() => void openTicket(detail.summary.number, true)}>Refresh</button></div>
         </header>
         {hasNewCustomerActivity && <div className="customer-activity" role="status"><strong>New customer activity</strong><span>The latest message came from the requester. Review it before replying.</span></div>}
         {detail.summary.snoozed_until && <div className="notice" role="status">Snoozed until {formatDate(detail.summary.snoozed_until)}. Direct work remains available.</div>}
@@ -466,10 +494,10 @@ export function SupportWorkspace({ user, projects }: { user: CurrentUser; projec
                 {entry.actor && <span className="entry-actor">{entry.actor.user_name}{entry.actor.agent_name ? ` via ${entry.actor.agent_name}` : ""}</span>}
               </li>)}
             </ol>
-            <div className="composer">
+            <div className={`composer ${composer}`}>
               <div className="composer-tabs" role="tablist" aria-label="Compose message">
-                <button type="button" role="tab" aria-selected={composer === "reply"} className={composer === "reply" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("reply"); setComposerStatus(""); }}>Public reply</button>
-                <button type="button" role="tab" aria-selected={composer === "note"} className={composer === "note" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("note"); setComposerStatus(""); }}>Internal note</button>
+                <button type="button" role="tab" aria-selected={composer === "reply"} tabIndex={composer === "reply" ? 0 : -1} className={composer === "reply" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("reply"); setComposerStatus(""); }} onKeyDown={event => moveComposerTab(event, "note")}>Public reply</button>
+                <button type="button" role="tab" aria-selected={composer === "note"} tabIndex={composer === "note" ? 0 : -1} className={composer === "note" ? "active" : ""} disabled={submitting !== null} onClick={() => { setComposer("note"); setComposerStatus(""); }} onKeyDown={event => moveComposerTab(event, "reply")}>Internal note</button>
               </div>
               {composer === "reply" ? <form onSubmit={sendReply} aria-busy={submitting === "reply"}>
                 <label>Reply to {detail.requester.name}<textarea aria-label="Public reply" value={reply} onChange={event => setReply(event.target.value)} rows={6} required /></label>

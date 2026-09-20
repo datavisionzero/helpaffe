@@ -74,6 +74,8 @@ it("shows a failed email delivery and queues a retry without a ticket version", 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.localStorage.removeItem("helpaffe-theme");
+  document.documentElement.classList.remove("dark");
 });
 
 it("offers sign in without a session", async () => {
@@ -94,6 +96,10 @@ it("shows the shared queues, filters, full context, and distinct conversation ki
 
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
   expect(await screen.findByRole("heading", { name: "Settings page is blank" })).toBeInTheDocument();
+  expect(screen.getByText("Selected")).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole("tab", { name: "Public reply" }), { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: "Internal note" })).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(screen.getByRole("tab", { name: "Internal note" }), { key: "ArrowLeft" });
   expect(screen.getByText("Customer message")).toBeInTheDocument();
   expect(screen.getAllByText("Public reply")).toHaveLength(2);
   expect(screen.getAllByText("Internal note")).toHaveLength(2);
@@ -110,6 +116,16 @@ it("shows the shared queues, filters, full context, and distinct conversation ki
   fireEvent.click(screen.getByRole("button", { name: /HLP-41.*Earlier settings issue/s }));
   expect(await screen.findByRole("heading", { name: "Earlier settings issue" })).toBeInTheDocument();
   expect(screen.getAllByText("New customer activity")).toHaveLength(2);
+});
+
+it("moves between work queues with arrow keys", async () => {
+  stubSupportApi();
+  render(<SupportWorkspace user={user} projects={[project]} />);
+  const open = await screen.findByRole("tab", { name: "Open" });
+  open.focus();
+  fireEvent.keyDown(open, { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: "In progress" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: "In progress" })).toHaveFocus();
 });
 
 it("combines full-text search with project and status filters", async () => {
@@ -223,7 +239,7 @@ it("snoozes and clears a ticket with version and idempotency protection", async 
   });
   render(<SupportWorkspace user={user} projects={[project]} />);
   fireEvent.click(await screen.findByRole("button", { name: /HLP-42.*Settings page is blank/s }));
-  fireEvent.change(await screen.findByLabelText("Return to queue"), { target: { value: "2026-09-20T12:00" } });
+  fireEvent.change(await screen.findByLabelText("Return to queue"), { target: { value: new Date(Date.now() + 86_400_000).toISOString().slice(0, 16) } });
   fireEvent.click(screen.getByRole("button", { name: "Snooze ticket" }));
 
   await waitFor(() => expect(fetch).toHaveBeenCalledWith(
@@ -384,6 +400,7 @@ it("preserves a solution draft across a stale conflict and confirms deletion", a
 
   fireEvent.click(await screen.findByRole("button", { name: /postgres-restart.*Restart PostgreSQL safely/s }));
   expect(await screen.findByRole("heading", { name: "Restart PostgreSQL safely" })).toBeInTheDocument();
+  expect(screen.getByText("Selected")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Edit article" }));
   const markdown = screen.getByRole("textbox", { name: "Markdown" });
   fireEvent.change(markdown, { target: { value: "Carefully revised runbook." } });
@@ -422,6 +439,41 @@ it("keeps human administration behind its navigation entry", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Administration" }));
   expect(await screen.findByRole("heading", { name: "People" })).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "Role for Support" })).toHaveValue("support");
+});
+
+it("follows system appearance and saves a selected theme", async () => {
+  const listeners = new Set<() => void>();
+  const preference = {
+    matches: true,
+    addEventListener: (_event: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_event: string, listener: () => void) => listeners.delete(listener),
+  };
+  vi.stubGlobal("matchMedia", () => preference);
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+    const path = String(input);
+    if (path.endsWith("/me")) return response(user);
+    if (path.endsWith("/projects")) return response([project]);
+    if (path.includes("/assignees")) return response([]);
+    if (path.includes("/tickets?")) return response({ items: [], next_cursor: null });
+    throw new Error(`Unexpected request: ${path}`);
+  }));
+  render(<App />);
+
+  const appearance = await screen.findByRole("combobox", { name: "Appearance" });
+  expect(document.documentElement).toHaveClass("dark");
+  preference.matches = false;
+  listeners.forEach(listener => listener());
+  expect(document.documentElement).not.toHaveClass("dark");
+  fireEvent.change(appearance, { target: { value: "dark" } });
+  expect(document.documentElement).toHaveClass("dark");
+  expect(window.localStorage.getItem("helpaffe-theme")).toBe("dark");
+  fireEvent.change(appearance, { target: { value: "light" } });
+  expect(document.documentElement).not.toHaveClass("dark");
+  expect(window.localStorage.getItem("helpaffe-theme")).toBe("light");
+  fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+  expect(document.querySelector('button[aria-controls="app-navigation"]')).toHaveAttribute("aria-expanded", "true");
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.getByRole("button", { name: "Open navigation" })).toHaveAttribute("aria-expanded", "false");
 });
 
 it("manages project email settings, templates, previews, and test delivery", async () => {
