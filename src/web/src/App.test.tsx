@@ -400,6 +400,7 @@ it("preserves a solution draft across a stale conflict and confirms deletion", a
 
   fireEvent.click(await screen.findByRole("button", { name: /postgres-restart.*Restart PostgreSQL safely/s }));
   expect(await screen.findByRole("heading", { name: "Restart PostgreSQL safely" })).toBeInTheDocument();
+  expect(screen.getByText("Selected")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Edit article" }));
   const markdown = screen.getByRole("textbox", { name: "Markdown" });
   fireEvent.change(markdown, { target: { value: "Carefully revised runbook." } });

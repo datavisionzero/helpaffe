@@ -19,6 +19,7 @@ const emptyDraft: Draft = { key: "", title: "", markdown: "" };
 
 export function SolutionsWorkspace({ projects }: { projects: Project[] }) {
   const pane = useRef<HTMLElement>(null);
+  const listPane = useRef<HTMLElement>(null);
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -80,6 +81,7 @@ export function SolutionsWorkspace({ projects }: { projects: Project[] }) {
       setError("");
       const selected = await call<Solution>(solutionPath(projectId, key));
       setDetail(selected);
+      if (!preserveDraft) showPaneOnPhone();
       setEditing(preserveDraft ? "update" : null);
       setConfirmDelete(false);
       setConflict(null);
@@ -97,6 +99,20 @@ export function SolutionsWorkspace({ projects }: { projects: Project[] }) {
     setConfirmDelete(false);
     setError("");
     setNotice("");
+    showPaneOnPhone();
+  }
+
+  function showPaneOnPhone() {
+    if (!window.matchMedia?.("(max-width: 40rem)").matches) return;
+    requestAnimationFrame(() => {
+      pane.current?.scrollIntoView?.({ block: "start" });
+      pane.current?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+    });
+  }
+
+  function backToList() {
+    listPane.current?.scrollIntoView?.({ block: "start" });
+    listPane.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
   }
 
   function beginUpdate() {
@@ -173,9 +189,9 @@ export function SolutionsWorkspace({ projects }: { projects: Project[] }) {
   const selectedProject = projects.find(project => project.id === projectId);
 
   return <div className="solutions-workspace">
-    <aside className="solutions-sidebar">
+    <aside className="solutions-sidebar" ref={listPane}>
       <div className="solutions-heading">
-        <div><p className="eyebrow">Shared knowledge</p><h1>Solutions</h1></div>
+        <div><p className="eyebrow">Shared knowledge</p><h1 tabIndex={-1}>Solutions</h1></div>
         <button onClick={beginCreate} disabled={!projectId}>New article</button>
       </div>
       <form className="solutions-filters" onSubmit={event => { event.preventDefault(); setSearch(searchInput.trim()); }}>
@@ -191,19 +207,19 @@ export function SolutionsWorkspace({ projects }: { projects: Project[] }) {
         {loading && solutions.length === 0 && <p className="muted">Loading solutions…</p>}
         {!loading && projectId && solutions.length === 0 && <div className="queue-empty"><strong>No solutions yet.</strong><span>Create the first reusable answer or try another search.</span></div>}
         {!projectId && <div className="queue-empty"><strong>No project scope.</strong><span>You need access to a project before storing solutions.</span></div>}
-        {solutions.map(solution => <button className={`solution-row ${detail?.key === solution.key ? "selected" : ""}`} key={solution.id} onClick={() => void openSolution(solution.key)}>
-          <span className="solution-key">{solution.key}</span>
+        {solutions.map(solution => <button className={`solution-row ${detail?.key === solution.key ? "selected" : ""}`} aria-current={detail?.key === solution.key ? "true" : undefined} key={solution.id} onClick={() => void openSolution(solution.key)}>
+          <span className="solution-row-top"><span className="solution-key">{solution.key}</span>{detail?.key === solution.key && <span className="selected-label">Selected</span>}</span>
           <strong>{solution.title}</strong>
           <span>Updated {formatDate(solution.updated_at)} · v{solution.version}</span>
         </button>)}
       </div>
       {nextCursor && <button className="secondary load-more" disabled={loading} onClick={() => void loadSolutions(nextCursor)}>Load more</button>}
     </aside>
-    <section className="solution-pane" ref={pane}>
+    <section className={`solution-pane${editing || detail ? "" : " is-empty"}`} ref={pane}>
       {editing ? <form className="solution-editor" onSubmit={save}>
         <div className="solution-pane-heading">
-          <div><p className="eyebrow">{selectedProject?.key ?? "Project"}</p><h2>{editing === "create" ? "New solution" : "Edit solution"}</h2></div>
-          <button className="secondary compact" type="button" onClick={() => { setEditing(null); setConflict(null); if (!detail) setDraft(emptyDraft); }}>Cancel</button>
+          <div><p className="eyebrow">{selectedProject?.key ?? "Project"}</p><h2 tabIndex={-1}>{editing === "create" ? "New solution" : "Edit solution"}</h2></div>
+          <div className="solution-actions"><button className="secondary compact back-to-queue" type="button" onClick={backToList}>Back to solutions</button><button className="secondary compact" type="button" onClick={() => { setEditing(null); setConflict(null); if (!detail) setDraft(emptyDraft); }}>Cancel</button></div>
         </div>
         {conflict && <div className="conflict" role="alert"><div><strong>This article changed while you were editing.</strong><span>{conflict.detail}{conflict.currentVersion ? ` Current version: ${conflict.currentVersion}.` : ""}</span></div><button className="secondary compact" type="button" onClick={() => detail && void openSolution(detail.key, true)}>Reload article</button></div>}
         {error && <p className="error banner" role="alert">{error}</p>}
@@ -213,8 +229,8 @@ export function SolutionsWorkspace({ projects }: { projects: Project[] }) {
         <div className="solution-actions"><button type="submit">{editing === "create" ? "Create article" : "Save changes"}</button></div>
       </form> : detail ? <article className="solution-detail">
         <header className="solution-pane-heading">
-          <div><p className="solution-key">{selectedProject?.key} / {detail.key} · v{detail.version}</p><h2>{detail.title}</h2><p>Updated {formatDate(detail.updated_at)}</p></div>
-          <div className="solution-actions"><button onClick={beginUpdate}>Edit article</button><button className="secondary" onClick={() => setConfirmDelete(true)}>Delete article</button></div>
+          <div><p className="solution-key">{selectedProject?.key} / {detail.key} · v{detail.version}</p><h2 tabIndex={-1}>{detail.title}</h2><p>Updated {formatDate(detail.updated_at)}</p></div>
+          <div className="solution-actions"><button className="secondary compact back-to-queue" onClick={backToList}>Back to solutions</button><button onClick={beginUpdate}>Edit article</button><button className="secondary" onClick={() => setConfirmDelete(true)}>Delete article</button></div>
         </header>
         {conflict && <div className="conflict" role="alert"><div><strong>This article changed.</strong><span>{conflict.detail}</span></div><button className="secondary compact" onClick={() => void openSolution(detail.key)}>Reload article</button></div>}
         {confirmDelete && <div className="delete-confirm" role="alert"><div><strong>Delete this solution article?</strong><span>This removes it from the project immediately.</span></div><div><button className="secondary compact" onClick={() => setConfirmDelete(false)}>Cancel</button><button className="danger compact" onClick={() => void deleteSolution()}>Delete permanently</button></div></div>}
