@@ -95,11 +95,19 @@ export function App() {
     setProjects([]);
     setView("tickets");
     setMenuOpen(false);
+    scrollMobileTop();
   }
 
   function navigate(next: View) {
     setView(next);
     setMenuOpen(false);
+    scrollMobileTop();
+  }
+
+  function scrollMobileTop() {
+    if (window.matchMedia?.("(max-width: 40rem)").matches) {
+      requestAnimationFrame(() => window.scrollTo(0, 0));
+    }
   }
 
   if (user === undefined) return <main className="center">Loading helpaffe…</main>;
