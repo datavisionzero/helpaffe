@@ -1,6 +1,6 @@
 # Install a released helpaffe instance
 
-Release `v0.1.1` provides one application image containing the API and Web UI,
+Release `v0.1.2` provides one application image containing the API and Web UI,
 plus PostgreSQL in a two-service Compose stack. The application image supports
 `linux/amd64` and `linux/arm64`. No source checkout, .NET SDK, Node.js, or Go
 toolchain is required on the server.
@@ -12,7 +12,7 @@ same release tag:
 
 ```sh
 mkdir helpaffe && cd helpaffe
-base=https://raw.githubusercontent.com/datavisionzero/helpaffe/v0.1.1/deploy
+base=https://raw.githubusercontent.com/datavisionzero/helpaffe/v0.1.2/deploy
 curl -fsSLo compose.yaml "$base/compose.yaml"
 curl -fsSLo .env "$base/.env.example"
 chmod 600 .env
@@ -29,7 +29,7 @@ Edit `.env` and set these four required values:
   generate once with `openssl rand -base64 32`. Keep it with database backups:
   losing it makes stored SMTP passwords unreadable.
 
-The example pins `HELPAFFE_VERSION=0.1.1`. Do not commit or share `.env`.
+The example pins `HELPAFFE_VERSION=0.1.2`. Do not commit or share `.env`.
 To send logs to logaffe, set both `HELPAFFE_LOGAFFE_URL` and
 `HELPAFFE_LOGAFFE_TOKEN`; see [application logs](operations.md#application-logs).
 Start the stack and wait for PostgreSQL, migrations, and the application:
@@ -65,16 +65,16 @@ project's customer and backoffice ticket URLs to use its actual HTTPS address.
 ## Install the agent CLI
 
 Download the archive for the agent host from the
-[v0.1.1 release](https://github.com/datavisionzero/helpaffe/releases/tag/v0.1.1).
+[v0.1.2 release](https://github.com/datavisionzero/helpaffe/releases/tag/v0.1.2).
 The release includes Linux and macOS archives for amd64 and arm64, plus
 `SHA256SUMS`. For example, on Linux amd64:
 
 ```sh
-assets=https://github.com/datavisionzero/helpaffe/releases/download/v0.1.1
-curl -fL -O "$assets/helpaffe_0.1.1_linux_amd64.tar.gz"
+assets=https://github.com/datavisionzero/helpaffe/releases/download/v0.1.2
+curl -fL -O "$assets/helpaffe_0.1.2_linux_amd64.tar.gz"
 curl -fL -O "$assets/SHA256SUMS"
-grep 'helpaffe_0.1.1_linux_amd64.tar.gz' SHA256SUMS | sha256sum -c -
-tar -xzf helpaffe_0.1.1_linux_amd64.tar.gz helpaffe LICENSE
+grep 'helpaffe_0.1.2_linux_amd64.tar.gz' SHA256SUMS | sha256sum -c -
+tar -xzf helpaffe_0.1.2_linux_amd64.tar.gz helpaffe LICENSE
 ./helpaffe version
 ```
 
